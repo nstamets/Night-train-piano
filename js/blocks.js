@@ -2,9 +2,10 @@
 // ctx: { player, done(result), save(), toast(msg), openMicCheck(opts) }
 import { ITEMS, PIECES, POSTURE, TIPS, TEMPO_LADDER, READING_LEVELS, parse, CHORD_SPELL, KEYS_NASHVILLE } from './content.js';
 import { midiConnected, listenMIDI } from './midi.js';
+import { recSupported, startRec, stopRec, shareTake, recording } from './recorder.js';
 import { judge } from './pitch.js';
 import { renderStaff, renderScore, renderKeyboard, bindKeyboard, fallingNotes, letterOf } from './notation.js';
-import { playNote, schedulePlayback, audio, pad, click, unlockAudio, setBackingVolume } from './audio.js';
+import { playNote, schedulePlayback, audio, pad, click, unlockAudio, setBackingVolume, makeRoute } from './audio.js';
 import { recordRating, ratingFromScore, itemState, hardestPhrase, milesFor, shuffle, paceFast } from './engine.js';
 
 const $ = (el, sel) => el.querySelector(sel);
@@ -26,6 +27,7 @@ export function mountBlock(el, block, ctx) {
     case 'checkpoint': return mountCheckpoint(el, it, block, ctx);
     case 'chordquiz': return mountChordQuiz(el, it, block, ctx);
     case 'choice': return mountChoice(el, it, block, ctx);
+    case 'echo': return mountEcho(el, it, block, ctx);
     default: el.innerHTML = '<p>Unknown block</p>'; return () => {};
   }
 }
@@ -165,6 +167,7 @@ function mountReadQuiz(el, it, block, ctx) {
 function mountRhythm(el, it, block, ctx) {
   const c = audio();
   const onsets = []; let b = 0; it.pattern.forEach(d => { onsets.push(b); b += d; });
+  if (it.swing) for (let k = 0; k < onsets.length; k++) if (Math.abs((onsets[k] % 1) - 0.5) < 1e-6) onsets[k] += 1 / 6; // long-short
   const notes = it.pattern.map((d, i) => ({ midi: 71, beat: onsets[i], dur: d }));
   let tries = 0, best = 0, ctl = null, taps = [], musicStart = 0, listening = false;
   const spb = 60 / it.bpm;
@@ -185,7 +188,7 @@ function mountRhythm(el, it, block, ctx) {
     await unlockAudio();
     taps = []; listening = false; fb.textContent = '';
     $(el, '[data-start]').disabled = true; pad.disabled = false;
-    ctl = schedulePlayback({ events: notes, bpm: it.bpm, countIn: 1, playNotes: false, metronome: true,
+    ctl = schedulePlayback({ events: notes, bpm: it.bpm, countIn: 1, playNotes: !!it.swing, swing: !!it.swing, metronome: true,
       onBeat: (bi) => { count.textContent = bi < 0 ? `Count-in: ${bi + 5}` : `Beat ${(bi % 4) + 1}`; if (bi === -1) listening = true; },
       onEnd: () => { listening = false; finishTry(); } });
     musicStart = ctl.musicStart;
@@ -282,7 +285,8 @@ function mountEar(el, it, block, ctx) {
 
 // ---------- Creativity ----------
 function mountImprov(el, it, block, ctx) {
-  let ctl = null; let stopFlag = false;
+  let ctl = null; let stopFlag = false; let route = null;
+  const newRoute = () => { route && route.stop(); route = makeRoute(); return route; };
   const p = ctx.player;
   let body = '';
   if (it.compose) body = `<div class="kbwrap tall">${renderKeyboard(60, 67, { labels: 'all' })}</div>
@@ -290,6 +294,8 @@ function mountImprov(el, it, block, ctx) {
       <div class="row"><button class="btn" data-playback>▶ Play it back</button><button class="btn ghost" data-clear>Clear</button></div>`;
   else if (it.callResponse) body = `<div class="cr" aria-live="polite">Press start. Listen, then answer.</div>
       <div class="row"><button class="btn primary big" data-start>Start</button><button class="btn" data-stop>Stop</button></div>`;
+  else if (it.dorian || it.pentatonic) body = `<div class="kbwrap">${renderKeyboard(50, 74, { labels: 'all', marks: Object.fromEntries((it.dorian ? [50, 52, 53, 55, 57, 59, 60, 62, 64, 65, 67, 69, 71, 72, 74] : [55, 57, 60, 62, 64, 67, 69, 72, 74]).map(m => [m, 'target'])) })}</div>
+      <div class="row"><button class="btn primary big" data-start>▶ Start the band</button><button class="btn" data-stop>Stop</button></div>${volSlider(p)}`;
   else if (it.blues) body = `<div class="kbwrap">${renderKeyboard(48, 72, { labels: 'c', marks: Object.fromEntries([48, 51, 53, 54, 55, 58, 60, 63, 65, 66, 67, 70, 72].map(m => [m, 'target'])) })}</div>
       <div class="row"><button class="btn primary big" data-start>▶ Start the band</button><button class="btn" data-stop>Stop</button></div>${volSlider(p)}`;
   else body = `<div class="kbwrap">${renderKeyboard(54, 70, { labels: 'none', marks: Object.fromEntries([54, 56, 58, 61, 63, 66, 68, 70].map(m => [m, 'target'])) })}</div>
@@ -307,7 +313,8 @@ function mountImprov(el, it, block, ctx) {
     const spb = 60 / it.bpm; const c = audio(); let t = c.currentTime + 0.1;
     for (let bar = 0; bar < it.bars && !stopFlag; bar++) {
       const ch = it.chords[bar % it.chords.length];
-      pad(ch, t, spb * 4); pad([ch[0] - 12], t, spb * 4);
+      const r = bar === 0 ? newRoute() : route;
+      r.run(() => { pad(ch, t, spb * 4); pad([ch[0] - 12], t, spb * 4); });
       t += spb * 4; await sleep(spb * 4000);
     }
   };
@@ -318,39 +325,50 @@ function mountImprov(el, it, block, ctx) {
     for (let r = 0; r < 4 && !stopFlag; r++) {
       const call = calls[r]; const c = audio(); let t = c.currentTime + 0.1;
       box.innerHTML = '<strong>Listen…</strong>';
-      for (let k = 0; k < 4; k++) click(t + k * spb, k === 0);
-      let bt = t; call.forEach(d => { playNote(60, { when: bt, dur: d * spb * 0.9 }); bt += d * spb; });
+      const rt = newRoute();
+      rt.run(() => { for (let k = 0; k < 4; k++) click(t + k * spb, k === 0); let bt = t; call.forEach(d => { playNote(60, { when: bt, dur: d * spb * 0.9 }); bt += d * spb; }); });
       await sleep(spb * 4000); if (stopFlag) break;
       box.innerHTML = '<strong>Your turn!</strong> Answer on C, D, or E.';
-      t = audio().currentTime + 0.02; for (let k = 0; k < 4; k++) click(t + k * spb, k === 0);
+      t = audio().currentTime + 0.02; route.run(() => { for (let k = 0; k < 4; k++) click(t + k * spb, k === 0); });
       await sleep(spb * 4000);
     }
     if (!stopFlag) box.textContent = 'Nice conversation! Press start for another round.';
   };
   el.onclick = e => {
     if (e.target.closest('[data-start]')) { it.callResponse ? runCR() : runBacking(); }
-    if (e.target.closest('[data-stop]')) { stopFlag = true; ctl && ctl.stop(); ctl = null; }
+    if (e.target.closest('[data-stop]')) { stopFlag = true; ctl && ctl.stop(); ctl = null; route && route.stop(); route = null; }
     if (e.target.closest('[data-clear]')) { tune.length = 0; $(el, '.tn').textContent = '(tap keys)'; }
     if (e.target.closest('[data-playback]')) { const t = audio().currentTime + 0.05; tune.forEach((m, i) => playNote(m, { when: t + i * 0.45, dur: 0.42 })); }
     if (e.target.closest('[data-done]')) {
-      stopFlag = true; ctl && ctl.stop();
+      stopFlag = true; ctl && ctl.stop(); route && route.stop();
       if (it.compose && tune.length) { p.compositions = p.compositions || []; p.compositions.push({ notes: tune.slice(), at: Date.now() }); }
       recordRating(p, block.id, 'clean');
       ctx.done({ miles: 8, skill: it.skill, xp: 5, summary: it.compose && tune.length ? `Saved your tune: ${tune.map(letterOf).join(' ')}` : 'Created something new' });
     }
   };
-  return () => { stopFlag = true; el.onclick = null; ctl && ctl.stop(); };
+  return () => { stopFlag = true; el.onclick = null; ctl && ctl.stop(); route && route.stop(); };
 }
 
 // ---------- Piece helpers (shared with the app's mic check) ----------
 // Which staff/notes the player sees for a view: 'rh' | 'lh' | 'ht' | duet part id
 export function pieceView(piece, view) {
   const bpb = piece.beatsPerBar || 4;
-  const base = { beatsPerBar: bpb, keySig: piece.keySig || null };
+  const base = { beatsPerBar: bpb, keySig: piece.keySig || null, timeBottom: piece.timeBottom || 4 };
   if (piece.duet) {
     const part = piece.duet.parts.find(x => x.id === view) || piece.duet.parts[0];
     const others = piece.duet.parts.filter(x => x !== part && !(part.id !== 'melody' && x.id !== 'melody'));
     return { ...base, staves: [{ notes: part.notes, clef: part.clef }], events: part.notes, accompany: others.length ? others[others.length - 1].notes : null, clef: part.clef };
+  }
+  if (piece.grand) {
+    // one line of music shared between the hands: split each event onto treble (>= middle C) and bass staves
+    const up = [], down = [];
+    piece.notes.forEach((n, i) => {
+      const ms = Array.isArray(n.midi) ? n.midi : [n.midi];
+      const hi = ms.filter(m => m >= 60), lo = ms.filter(m => m < 60);
+      if (hi.length) up.push({ ...n, midi: hi.length > 1 ? hi : hi[0], ix: i });
+      if (lo.length) down.push({ ...n, midi: lo.length > 1 ? lo : lo[0], ix: i, finger: undefined });
+    });
+    return { ...base, staves: [{ notes: up, clef: 'treble' }, { notes: down, clef: 'bass' }], events: piece.notes, clef: 'treble', grand: true };
   }
   if (view === 'lh' && piece.lh) return { ...base, staves: [{ notes: piece.lh, clef: 'bass' }], events: piece.lh, clef: 'bass' };
   if (view === 'ht' && piece.lh) {
@@ -373,7 +391,7 @@ function mountPiano(el, it, block, ctx) {
   const piece = it.piece ? PIECES[it.piece] : null;
   let repsHere = 0; let ctl = null; let falling = null; let phrase = null; let current = -1; let showGuide = true; let useBand = true;
   let view = piece && piece.duet ? (st.part || 'melody') : 'rh';
-  let partner = true; let midiRec = null; let midiHeard = [];
+  let partner = true; let midiRec = null; let midiHeard = []; let take = null; let recRunning = false;
 
   if (!piece) {
     el.innerHTML = `${header(it, 'At the piano')}
@@ -391,7 +409,7 @@ function mountPiano(el, it, block, ctx) {
   const hp = hardestPhrase(p, block.id);
   if (hp !== null) phrase = hp;
   const level = () => p.readingLevel ?? (p.readsTreble ? 3 : 0);
-  const hasChords = () => pieceView(piece, view).events.some(n => Array.isArray(n.midi));
+  const hasChords = () => pieceView(piece, view).events.some(n => Array.isArray(n.midi) && new Set(n.midi.map(x => x % 12)).size > 1);
 
   // events for the current view + phrase, re-based so the phrase starts at bar 1
   const current_view = () => {
@@ -419,8 +437,18 @@ function mountPiano(el, it, block, ctx) {
     if (piece.lh) return [['rh', 'Right hand'], ['lh', 'Left hand'], ['ht', 'Hands together']];
     return null;
   };
-  const staffHtml = (cv) => renderScore(cv.ev.length && cv.together ? splitStaves(cv) : [{ notes: cv.ev, clef: cv.clef }],
-    { beatsPerBar: cv.beatsPerBar, keySig: cv.keySig, letters: level() <= 2 && !hasChords(), barsPerLine: barsPerLine(), current, fingers: level() <= 1 });
+  const staffHtml = (cv) => renderScore(cv.grand ? grandStaves(cv) : cv.ev.length && cv.together ? splitStaves(cv) : [{ notes: cv.ev, clef: cv.clef }],
+    { beatsPerBar: cv.beatsPerBar, keySig: cv.keySig, timeBottom: cv.timeBottom, letters: level() <= 2 && !hasChords() && !cv.grand, barsPerLine: barsPerLine(), current, fingers: level() <= 1 });
+  const grandStaves = cv => {
+    const up = [], down = [];
+    cv.ev.forEach((n, k) => {
+      const ms = Array.isArray(n.midi) ? n.midi : [n.midi];
+      const hi = ms.filter(m => m >= 60), lo = ms.filter(m => m < 60);
+      if (hi.length) up.push({ ...n, midi: hi.length > 1 ? hi : hi[0], ix: k });
+      if (lo.length) down.push({ ...n, midi: lo.length > 1 ? lo : lo[0], ix: k, finger: undefined });
+    });
+    return [{ notes: up, clef: 'treble' }, { notes: down, clef: 'bass' }];
+  };
   const splitStaves = cv => {
     const rh = cv.ev.filter(n => n.i < piece.notes.length); const lh = cv.ev.filter(n => n.i >= piece.notes.length);
     return [{ notes: rh, clef: piece.clef || 'treble' }, { notes: lh, clef: 'bass', idxBase: rh.length }];
@@ -438,15 +466,8 @@ function mountPiano(el, it, block, ctx) {
     const lo = piece.range[0], hi = piece.range[1];
     el.innerHTML = `${header(it, esc(piece.credit || (piece.hand === 'LH' ? 'Left hand' : piece.hand === 'RH' ? 'Right hand' : '')))}
       <p class="lesson-text small">${esc(it.howto)}${piece.lhNote && view !== 'rh' ? ' ' + esc(piece.lhNote) : ''}</p>
+      <div class="pv"><div class="pv-music">
       ${vc ? `<div class="seg" role="group" aria-label="${piece.duet ? 'Your part' : 'Hands'}">${vc.map(([id, name]) => `<button class="${view === id ? 'on' : ''}" data-view="${id}">${esc(name)}</button>`).join('')}</div>` : ''}
-      <div class="chips">
-        <button class="chip" data-level title="Change reading help">👁 ${READING_LEVELS[L].name}</button>
-        <span class="chip static" aria-label="Clean in a row">${'●'.repeat(st.cleanStreak)}${'○'.repeat(3 - st.cleanStreak)} clean in a row</span>
-        ${midiConnected() ? '<span class="chip static">🎹 Keyboard connected: auto-check on</span>' : ''}
-      </div>
-      <label class="tempo">Tempo <strong data-tv>${Math.round(pct() * 100)}% · ${bpm()} bpm</strong>
-        <input type="range" min="40" max="140" step="5" value="${Math.round(pct() * 100)}" data-tempo aria-label="Tempo percent">
-        <small class="muted">Suggested: ${Math.round(TEMPO_LADDER[st.tempoStep] * 100)}%. Three clean tries in a row moves it up.</small></label>
       ${piece.phrases && view !== 'lh' && !(piece.duet && view !== 'melody') ? `<div class="seg" role="group" aria-label="Choose section">
         <button class="${phrase === null ? 'on' : ''}" data-ph="all">Whole</button>
         ${piece.phrases.map((_, i) => `<button class="${phrase === i ? 'on' : ''}" data-ph="${i}">Phrase ${i + 1}${hp === i ? ' ★' : ''}</button>`).join('')}
@@ -454,10 +475,19 @@ function mountPiano(el, it, block, ctx) {
       ${showStaff ? `<div class="staffwrap">${staffHtml(cv)}</div>` : ''}
       ${showFalling ? '<canvas class="falling" aria-hidden="true"></canvas>' : ''}
       ${L <= 2 || hasChords() ? `<div class="kbwrap">${renderKeyboard(lo, hi, { labels: kbLabels, fingers: L <= 1 ? fingers : {} })}</div>` : ''}
+      </div><div class="pv-ctl">
+      <div class="chips">
+        <button class="chip" data-level title="Change reading help">👁 ${READING_LEVELS[L].name}</button>
+        <span class="chip static" aria-label="Clean in a row">${'●'.repeat(st.cleanStreak)}${'○'.repeat(3 - st.cleanStreak)} clean in a row</span>
+        ${midiConnected() ? '<span class="chip static">🎹 Keyboard: auto-check on</span>' : ''}
+      </div>
+      <label class="tempo">Tempo <strong data-tv>${Math.round(pct() * 100)}% · ${bpm()} bpm</strong>
+        <input type="range" min="40" max="140" step="5" value="${Math.round(pct() * 100)}" data-tempo aria-label="Tempo percent">
+        <small class="muted">Suggested: ${Math.round(TEMPO_LADDER[st.tempoStep] * 100)}%. Three clean tries in a row moves it up.</small></label>
       <div class="row ctl">
         <button class="btn" data-listen>▶ Listen</button>
         <button class="btn primary" data-along>Play along</button>
-        <button class="btn" data-stop>■</button>
+        <button class="btn" data-stop aria-label="Stop">■</button>
       </div>
       <label class="tog"><input type="checkbox" data-guide ${showGuide ? 'checked' : ''}> Guide notes play with me</label>
       ${piece.duet ? `<label class="tog"><input type="checkbox" data-partner ${partner ? 'checked' : ''}> Virtual partner plays the other part</label>` : ''}
@@ -465,7 +495,12 @@ function mountPiano(el, it, block, ctx) {
       <p class="muted small">After each try, rate it honestly:</p>
       ${rateRow()}
       <p class="fb" aria-live="polite"></p>
-      <div class="row"><button class="btn ghost" data-quick>${midiConnected() ? '🎹' : '🎤'} Quick listen</button><button class="btn ghost" data-next>${repsHere >= 3 ? 'Next ›' : 'Done with this'}</button></div>`;
+      ${recSupported() ? `<div class="take">${take ? `<p class="small"><strong>Your take</strong> (${take.when}). Listen for evenness and steady beat.</p>
+        <audio controls src="${take.url}"></audio>
+        <div class="row"><button class="btn sm" data-compare>▶ Target, then me</button><button class="btn sm" data-share>Save / share</button><button class="btn sm ghost" data-rec>⏺ Record again</button></div>`
+        : '<button class="btn ghost" data-rec>⏺ Record a take</button>'}</div>` : ''}
+      <div class="row"><button class="btn ghost" data-quick>${midiConnected() ? '🎹' : '🎤'} Quick listen</button><button class="btn ghost" data-next>${repsHere >= 3 ? 'Next ›' : 'Done with this'}</button></div>
+      </div></div>`;
     if (showFalling) {
       const cvs = $(el, 'canvas.falling');
       falling && falling.stop();
@@ -474,21 +509,40 @@ function mountPiano(el, it, block, ctx) {
     }
     const kb = $(el, '.kbwrap'); if (kb) bindKeyboard(kb, m => playNote(m, { dur: 0.6 }));
   };
-  const stop = () => { ctl && ctl.stop(); ctl = null; current = -1; if (midiRec) { midiRec.stop(); midiRec = null; } };
-  const run = async (mode) => {
-    await unlockAudio(); stop();
+  const stop = () => { ctl && ctl.stop(); ctl = null; current = -1; if (midiRec) { midiRec.stop(); midiRec = null; } if (recRunning) finishRec(); };
+  const finishRec = async () => {
+    recRunning = false;
+    const blob = await stopRec();
+    if (!blob) { ctx.toast('Recording did not work on this device.'); return; }
+    if (take) URL.revokeObjectURL(take.url);
+    take = { blob, url: URL.createObjectURL(blob), when: new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) };
+    render(); ctx.toast('Take recorded. Listen back, then rate it.');
+  };
+  const record = async () => {
+    stop();
+    try { await unlockAudio(); await startRec(); } catch { ctx.toast('Microphone blocked, so recording is not available.'); return; }
+    recRunning = true;
+    const g = showGuide; showGuide = false;
+    await run('along', true);
+    showGuide = g;
+    const b = $(el, '[data-rec]'); if (b) { b.textContent = '⏺ Recording… tap ■ to stop'; b.classList.add('recording'); }
+  };
+  const run = async (mode, keepRec = false) => {
+    await unlockAudio();
+    if (!keepRec) stop(); else { ctl && ctl.stop(); ctl = null; }
     const cv = current_view();
     const ev = cv.ev;
     const playNotes = mode === 'listen' || showGuide;
     const accompany = piece.duet && partner ? cv.acc : null;
     const band = piece.band && useBand ? cv.band : null;
-    const autoCheck = mode === 'along' && midiConnected();
+    const autoCheck = mode === 'along' && midiConnected() && !keepRec;
     if (autoCheck) { midiHeard = []; midiRec = listenMIDI(e => midiHeard.push(e)); }
     ctl = schedulePlayback({ events: ev, bpm: bpm(), beatsPerBar: cv.beatsPerBar, countIn: mode === 'listen' ? 0 : 1, metronome: mode !== 'listen' && !band, playNotes,
-      loop: phrase !== null && mode === 'along' && !autoCheck, accompany, band, bandStyle: piece.bandStyle,
+      loop: phrase !== null && mode === 'along' && !autoCheck && !keepRec, accompany, band, bandStyle: piece.bandStyle, swing: !!piece.swing,
       onNote: i => { current = i; updateCursor(); },
       onEnd: () => {
         current = -1; updateCursor(); ctl = null;
+        if (recRunning) setTimeout(() => { if (recRunning) finishRec(); }, 900);
         if (autoCheck && midiRec) {
           midiRec.stop(); midiRec = null;
           const r = judge(ev, midiHeard);
@@ -510,6 +564,14 @@ function mountPiano(el, it, block, ctx) {
     else if (t.closest('[data-view]')) { stop(); view = t.closest('[data-view]').dataset.view; if (piece.duet) { st.part = view; ctx.save(); } render(); }
     else if (t.closest('[data-rate]')) rate(t.closest('[data-rate]').dataset.rate);
     else if (t.closest('[data-next]')) { stop(); finish(); }
+    else if (t.closest('[data-rec]')) { if (!recRunning) record(); }
+    else if (t.closest('[data-share]')) { if (take) shareTake(take.blob, `${p.name} - ${piece.title}`).catch(() => {}); }
+    else if (t.closest('[data-compare]')) {
+      if (!take) return;
+      run('listen');
+      const ms = (Math.max(...current_view().ev.map(n => n.beat + n.dur)) * 60 / bpm() + 0.8) * 1000;
+      setTimeout(() => { const a = $(el, '.take audio'); if (a) { a.currentTime = 0; a.play(); } }, ms);
+    }
     else if (t.closest('[data-quick]')) { stop(); ctx.openMicCheck({ pieceId: it.piece, itemId: block.id, quick: true, onResult: r => { if (r && r.verdict !== 'unclear') rate(r.verdict, true); } }); }
   };
   el.onchange = e => {
@@ -547,7 +609,7 @@ function mountPiano(el, it, block, ctx) {
   };
   render();
   if (hp !== null) $(el, '.fb').innerHTML = `Start with <strong>Phrase ${hp + 1}</strong>. It has been the trickiest spot.`;
-  return () => { stop(); falling && falling.stop(); el.onclick = null; el.onchange = null; el.oninput = null; };
+  return () => { stop(); falling && falling.stop(); if (take) URL.revokeObjectURL(take.url); el.onclick = null; el.onchange = null; el.oninput = null; };
 }
 
 // ---------- Chord building (touch, objective) ----------
@@ -585,7 +647,9 @@ function mountChordQuiz(el, it, block, ctx) {
       } else {
         firstTry = false;
         const missing = need.filter(pc => !picked.has(pc)).length;
-        fb.innerHTML = `<span class="no">✕ Not quite.</span> ${missing} note${missing > 1 ? 's are' : ' is'} off. Start on ${letterOf(need[0] + 60)} and skip every other key${need.length === 4 ? ', four notes' : ''}. ${name.includes('m') && !name.includes('maj') ? 'Minor: the middle note is one key lower.' : ''}`;
+        fb.innerHTML = `<span class="no">✕ Not quite.</span> ${missing} note${missing > 1 ? 's are' : ' is'} off. ` + (name.includes('rootless')
+          ? `No root here: start on ${letterOf(need[0] + 60)} and stack the chord's 3rd, 5th or 13th, 7th and 9th.`
+          : `Start on ${letterOf(need[0] + 60)} and skip every other key${need.length === 4 ? ', four notes' : ''}. ${name.includes('m') && !name.includes('maj') ? 'Minor: the middle note is one key lower.' : ''}`);
       }
     }
   };
@@ -632,6 +696,54 @@ function mountChoice(el, it, block, ctx) {
   return () => { el.onclick = null; };
 }
 
+// ---------- Play it by ear (echo) ----------
+// The app plays a short melody; the player finds it on the keyboard (screen or real piano, then taps it here).
+function mountEcho(el, it, block, ctx) {
+  const pool = [60, 62, 64, 67, 69, 72]; // C pentatonic: always sounds musical
+  let n = 0, right = 0, tune = [], got = [], tries = 0;
+  const make = () => {
+    const len = Math.min(6, (it.start || 3) + Math.floor(n / 2));
+    let m = 60; const t = [60];
+    for (let k = 1; k < len; k++) { const i = Math.max(0, Math.min(pool.length - 1, pool.indexOf(m) + [-2, -1, 1, 1, 2][Math.floor(Math.random() * 5)])); m = pool[i]; t.push(m); }
+    return t;
+  };
+  const play = async () => { await unlockAudio(); const t0 = audio().currentTime + 0.05; tune.forEach((m, i) => playNote(m, { when: t0 + i * 0.5, dur: 0.45 })); };
+  const render = () => {
+    el.innerHTML = `${header(it, `Melody ${n + 1} of ${it.count} · ${tune.length} notes`)}
+      <p class="lesson-text">Listen, sing it back, then find it. It always starts on <strong>C</strong>. Try it on the real piano first, then tap it here.</p>
+      <button class="btn big" data-play>▶ Play the melody</button>
+      <div class="kbwrap tall">${renderKeyboard(57, 74, { labels: 'c' })}</div>
+      <p class="picked" aria-live="polite">${got.map((m, i) => `<span class="${m === tune[i] ? 'ok' : 'no'}">${m === tune[i] ? '✓' : '✕'} ${esc(letterOf(m))}</span>`).join(' ') || '&nbsp;'}</p>
+      <p class="fb" aria-live="polite"></p>`;
+    bindKeyboard($(el, '.kbwrap'), m => {
+      playNote(m, { dur: 0.45 });
+      if (got.length >= tune.length) return;
+      got.push(m);
+      const i = got.length - 1;
+      if (m !== tune[i]) {
+        tries++;
+        $(el, '.fb').innerHTML = `<span class="no">✕ Not that one.</span> ${tune[i] > (got[i - 1] ?? 60) ? 'It goes up.' : tune[i] < (got[i - 1] ?? 60) ? 'It goes down.' : 'It repeats.'} Listen again and start over.`;
+        setTimeout(() => { got = []; render(); }, 1200);
+        return;
+      }
+      $(el, '.picked').innerHTML = got.map(x => `<span class="ok">✓ ${esc(letterOf(x))}</span>`).join(' ');
+      if (got.length === tune.length) {
+        if (tries === 0) right++;
+        $(el, '.fb').innerHTML = '<span class="ok">✓ You played it by ear!</span>';
+        setTimeout(() => { n++; if (n >= it.count) end(); else { tune = make(); got = []; tries = 0; render(); play(); } }, 1100);
+      }
+    });
+  };
+  el.onclick = e => { if (e.target.closest('[data-play]')) play(); };
+  const end = () => {
+    const score = right / it.count; const rating = ratingFromScore(score);
+    recordRating(ctx.player, block.id, rating);
+    ctx.done({ rating, score, miles: milesFor(rating), skill: 'ear', xp: Math.round(8 * score) + 3, summary: `${right} of ${it.count} on the first try` });
+  };
+  tune = make(); render(); play();
+  return () => { el.onclick = null; };
+}
+
 function rateRow() {
   return `<div class="rate" role="group" aria-label="Rate your try">
     <button class="btn r-clean" data-rate="clean">✓ Clean</button>
@@ -643,7 +755,7 @@ function rateRow() {
 function mountCheckpoint(el, it, block, ctx) {
   const piece = PIECES[it.piece];
   el.innerHTML = `${header(it, piece.lh ? 'The conductor listens once to the right hand. Read it from the music.' : 'The conductor listens once. Read it from the music.')}
-    <div class="staffwrap">${pieceScore(piece, { letters: (ctx.player.readingLevel ?? 0) <= 2 && !judgedNotes(piece).some(n => Array.isArray(n.midi)) })}</div>
+    <div class="staffwrap">${pieceScore(piece, { letters: (ctx.player.readingLevel ?? 0) <= 2 && !piece.grand && !judgedNotes(piece).some(n => Array.isArray(n.midi)) })}</div>
     <p class="lesson-text small">Put your phone on the music stand. Play at any comfortable, steady speed. Clean, steady notes matter more than speed.</p>
     <button class="btn primary big" data-mic>🎤 Start inspection</button>
     <button class="btn ghost" data-paper>No mic right now: use a paper ticket</button>`;

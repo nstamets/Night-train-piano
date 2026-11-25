@@ -1,6 +1,6 @@
 # Night Train 🚂 — family piano app
 
-Version 0.2.0 (Phase 2, delivery 2). Static web app: no build step, no server, no accounts.
+Version 0.3.0. Static web app: no build step, no server, no accounts.
 
 ## Put it on GitHub Pages
 
@@ -14,10 +14,10 @@ Version 0.2.0 (Phase 2, delivery 2). Static web app: no build step, no server, n
    README.md
    CHANGELOG.md
    js/app.js  js/audio.js  js/blocks.js  js/content.js
-   js/engine.js  js/notation.js  js/pitch.js  js/storage.js  js/midi.js
+   js/engine.js  js/notation.js  js/pitch.js  js/storage.js  js/midi.js  js/recorder.js
    icons/icon-192.png  icons/icon-512.png  icons/apple-touch-icon.png
    ```
-   (Dragging the `js` and `icons` folders in keeps the structure. 18 files in total.)
+   (Dragging the `js` and `icons` folders in keeps the structure. 19 files in total.)
 3. **Settings → Pages → Build and deployment → Source: Deploy from a branch → `main` / `/ (root)` → Save.**
 4. After about a minute, the app is at `https://<your-username>.github.io/night-train/`.
 5. On each iPhone: open that link in Safari → Share ⬆︎ → **Add to Home Screen** → open it from the Home Screen **before** creating players.
@@ -90,8 +90,19 @@ Version 0.2.0 (Phase 2, delivery 2). Static web app: no build step, no server, n
     - Play along on the Minuet. Each try should be rated automatically (🎹).
     - Does the inspection use the keyboard instead of the mic?
 
+## v0.3 tests
+
+20. **Stop button:** start the band on Blues scale jam, then tap Stop. The sound should cut immediately.
+21. **Record a take** on any piece:
+    - Tap ⏺, play, then tap ■.
+    - Does playback work?
+    - Does "Save / share" open the iPhone share sheet?
+22. **Für Elise inspection:** the hands alternate, so the mic hears one line. Tell me if it keeps up at a comfortable tempo.
+23. **Landscape on the music stand:** is the two-column layout comfortable?
+
 ## Limits in this version (honest)
 
 - The mic reliably judges single notes and firmly played chords. Two hands at once are judged on the right hand only. Low two-note shells are harder to hear.
 - In a family duet, both phones hear both players. Each phone separates its part by pitch range, so parts that overlap in range would confuse it (these arrangements keep the parts apart).
-- Each new line has 1–2 stations so far. More stations, recording/playback, and a pop track are next.
+- Recordings stay on the device unless saved or shared. They aren't part of backups.
+- The app can't hear the sustain pedal; pedaling uses self-checks and recorded takes.

@@ -6,6 +6,7 @@ const PC_TO_STEP = { 0: [0, ''], 1: [0, '♯'], 2: [1, ''], 3: [2, '♭'], 4: [2
 export const isBlack = m => [1, 3, 6, 8, 10].includes(((m % 12) + 12) % 12);
 export function letterOf(m) { const [s, acc] = PC_TO_STEP[((m % 12) + 12) % 12]; return LETTERS[s] + acc; }
 export function nameWithOctave(m) { return letterOf(m) + (Math.floor(m / 12) - 1); }
+function spelled(name) { const m = /^([A-G])([#b]?)(-?\d)$/.exec(name || ''); return m ? { step: LETTERS.indexOf(m[1]), acc: m[2] === '#' ? '♯' : m[2] === 'b' ? '♭' : '', oct: +m[3] } : null; }
 function diatonicPos(m) { const [s] = PC_TO_STEP[((m % 12) + 12) % 12]; return (Math.floor(m / 12) - 1) * 7 + s; }
 
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -29,7 +30,11 @@ export function renderScore(staves, opts = {}) {
   const all = staves.flatMap(st => st.notes);
   const totalBeats = all.length ? Math.max(...all.map(n => n.beat + n.dur)) : bpb;
   const bars = Math.max(1, Math.ceil(totalBeats / bpb - 1e-9));
-  const perLine = Math.max(1, Math.min(opts.barsPerLine || 2, bars));
+  // dense bars (e.g. sixteenths) get more room: halve the bars per line
+  const perBar = {}; all.forEach(n => { const b = Math.floor(n.beat / bpb + 1e-9); perBar[b] = (perBar[b] || 0) + 1; });
+  const dense = Math.max(0, ...Object.values(perBar)) > 9;
+  const perLine = Math.max(1, Math.min(dense ? Math.max(1, Math.floor((opts.barsPerLine || 2) / 2)) : (opts.barsPerLine || 2), bars));
+  const vs = 4 / (opts.timeBottom || 4); // visual duration scale (3/8 time: one beat = an eighth note)
   const lines = Math.ceil(bars / perLine);
   const s = 10;
   const ks = opts.keySig || {};
@@ -38,7 +43,7 @@ export function renderScore(staves, opts = {}) {
   const keyLetters = new Set((ks.sharps ? SHARP_ORDER : FLAT_ORDER).slice(0, nAcc));
   const hasSym = all.some(n => n.sym);
   const staffGap = 86; const sysH = staves.length * staffGap + 34 + (hasSym ? 14 : 0);
-  const left = 46 + nAcc * 9; const barW = 150; const width = left + perLine * barW + 10;
+  const left = 50 + nAcc * 10; const maxPerBar = Math.max(1, ...Object.values(perBar)); const barW = Math.max(150, maxPerBar * 21 + 28); const width = left + perLine * barW + 10;
   const height = lines * sysH + 6;
   let out = `<svg class="staff" viewBox="0 0 ${width} ${height}" role="img" aria-label="Music notation">`;
   const staffTop = (L, k) => 30 + (hasSym ? 14 : 0) + L * sysH + k * staffGap;
@@ -51,7 +56,7 @@ export function renderScore(staves, opts = {}) {
       const ref = CLEFS[st.clef || 'treble'].ref;
       const sp = SIG_POS[st.clef || 'treble'][accSym];
       for (let a = 0; a < nAcc; a++) out += `<text x="${32 + a * 9}" y="${bottom - (sp[a] - ref) * s / 2 + 5}" class="acc">${accSym}</text>`;
-      if (L === 0 && opts.timeSig !== false) out += `<text x="${left - 12}" y="${top + 17}" class="ts">${bpb}</text><text x="${left - 12}" y="${top + 37}" class="ts">4</text>`;
+      if (L === 0 && opts.timeSig !== false) out += `<text x="${left - 12}" y="${top + 17}" class="ts">${bpb}</text><text x="${left - 12}" y="${top + 37}" class="ts">${opts.timeBottom || 4}</text>`;
       for (let b = 1; b <= perLine; b++) {
         const barIndex = L * perLine + b; if (barIndex > bars) break;
         const x = left + b * barW;
@@ -70,27 +75,31 @@ export function renderScore(staves, opts = {}) {
       const inLine = bar - L * perLine;
       const top = staffTop(L, k); const bottomLine = top + 4 * s;
       const x = left + inLine * barW + 18 + ((n.beat - bar * bpb) / bpb) * (barW - 28);
-      const pitches = (Array.isArray(n.midi) ? n.midi : [n.midi]).slice().sort((a, b) => a - b);
-      const poss = pitches.map(diatonicPos);
+      const raw = Array.isArray(n.midi) ? n.midi : [n.midi];
+      const spMap = {}; if (n.sp) (Array.isArray(n.sp) ? n.sp : [n.sp]).forEach(nm => { const sp = spelled(nm); if (sp) spMap[(sp.oct + 1) * 12 + [0, 2, 4, 5, 7, 9, 11][sp.step] + (sp.acc === '♯' ? 1 : sp.acc === '♭' ? -1 : 0)] = sp; });
+      const pitches = raw.slice().sort((a, b) => a - b);
+      const poss = pitches.map(m => spMap[m] ? spMap[m].oct * 7 + spMap[m].step : diatonicPos(m));
       const ys = poss.map(pos => bottomLine - (pos - ref) * (s / 2));
-      const idx = st.idxBase !== undefined ? st.idxBase + st.notes.indexOf(n) : i;
+      const idx = n.ix !== undefined ? n.ix : st.idxBase !== undefined ? st.idxBase + st.notes.indexOf(n) : i;
       const mark = opts.marks && opts.marks[idx];
       const cls = ['nt', idx === opts.current ? 'cur' : '', mark ? 'm-' + mark : ''].join(' ');
       let g = `<g class="${cls}" data-i="${idx}">`;
       const lo = Math.min(...poss), hi = Math.max(...poss);
       for (let p = ref - 2; p >= lo; p -= 2) g += `<line x1="${x - 9}" x2="${x + 9}" y1="${bottomLine - (p - ref) * s / 2}" y2="${bottomLine - (p - ref) * s / 2}" class="sl"/>`;
       for (let p = ref + 10; p <= hi; p += 2) g += `<line x1="${x - 9}" x2="${x + 9}" y1="${bottomLine - (p - ref) * s / 2}" y2="${bottomLine - (p - ref) * s / 2}" class="sl"/>`;
-      const hollow = n.dur >= 2;
+      const vd = n.dur * vs;
+      const hollow = vd >= 2;
       pitches.forEach((m, j) => {
-        const [stp, acc] = PC_TO_STEP[((m % 12) + 12) % 12];
+        const sp = spMap[m];
+        const [stp, acc] = sp ? [sp.step, sp.acc] : PC_TO_STEP[((m % 12) + 12) % 12];
         const letter = LETTERS[stp];
         const shiftX = j > 0 && poss[j] - poss[j - 1] === 1 ? 11 : 0;
         if (acc && !(keyLetters.has(letter) && acc === accSym)) g += `<text x="${x - 18}" y="${ys[j] + 5}" class="acc">${acc}</text>`;
         else if (!acc && keyLetters.has(letter)) g += `<text x="${x - 17}" y="${ys[j] + 5}" class="acc">♮</text>`;
         g += `<ellipse cx="${x + shiftX}" cy="${ys[j]}" rx="6.2" ry="4.6" transform="rotate(-20 ${x + shiftX} ${ys[j]})" class="${hollow ? 'hollow' : 'filled'}"/>`;
-        if (n.dur === 1.5 || n.dur === 3) g += `<circle cx="${x + 12 + shiftX}" cy="${ys[j] - ((poss[j] - ref) % 2 === 0 ? 3 : 0)}" r="1.8" class="filled"/>`;
+        if (vd === 1.5 || vd === 3 || vd === 0.75) g += `<circle cx="${x + 12 + shiftX}" cy="${ys[j] - ((poss[j] - ref) % 2 === 0 ? 3 : 0)}" r="1.8" class="filled"/>`;
       });
-      const base = Math.round(n.dur * 2) / 2;
+      const base = Math.round(vd * 4) / 4;
       if (base !== 4 && base !== 3 && base !== 6) {
         const mid = (lo + hi) / 2;
         const up = mid < ref + 4;
@@ -98,7 +107,8 @@ export function renderScore(staves, opts = {}) {
         const yFrom = up ? Math.max(...ys) : Math.min(...ys);
         const yTo = up ? Math.min(...ys) - 34 : Math.max(...ys) + 34;
         g += `<line x1="${sx}" x2="${sx}" y1="${yFrom}" y2="${yTo}" class="stem"/>`;
-        if (n.dur <= 0.5) g += `<path d="M${sx} ${yTo} q 10 ${up ? 10 : -10} 6 ${up ? 22 : -22}" class="flag"/>`;
+        if (vd <= 0.75) g += `<path d="M${sx} ${yTo} q 10 ${up ? 10 : -10} 6 ${up ? 22 : -22}" class="flag"/>`;
+        if (vd <= 0.375) g += `<path d="M${sx} ${yTo + (up ? 8 : -8)} q 10 ${up ? 10 : -10} 6 ${up ? 22 : -22}" class="flag"/>`;
       }
       if (n.sym) g += `<text x="${x}" y="${staffTop(L, 0) - (opts.fingers ? 26 : 14)}" class="sym">${esc(n.sym)}</text>`;
       if (opts.letters && pitches.length === 1) g += `<text x="${x}" y="${bottomLine + 34}" class="lt">${esc(letterOf(pitches[0]))}</text>`;
@@ -215,6 +225,7 @@ export function fallingNotes(canvas, { events, lo, hi, getBeat, lookahead = 4, l
 }
 
 function roundRect(c, x, y, w, h, r) {
-  r = Math.min(r, h / 2, w / 2);
+  h = Math.max(h, 3); w = Math.max(w, 3);
+  r = Math.max(0, Math.min(r, h / 2, w / 2));
   c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r); c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath();
 }

@@ -453,8 +453,8 @@ async function handleCheckpoint(res, it, stationId, inSession = false) {
 // ---------- Mic check (inspection / quick listen / audition) ----------
 function openMicCheck({ pieceId, onResult, quick = false, audition = false }) {
   const p = S.player; const piece = PIECES[pieceId];
-  const target = judgedNotes(piece);
-  const chords = target.some(n => Array.isArray(n.midi));
+  const target = judgedNotes(piece).map(n => piece.swing && Math.abs((n.beat % 1) - 0.5) < 1e-6 ? { ...n, beat: n.beat + 1 / 6 } : n);
+  const chords = target.some(n => Array.isArray(n.midi) && new Set(n.midi.map(m => m % 12)).size > 1);
   const viaMidi = midiConnected();
   const ov = document.createElement('div'); ov.className = 'overlay';
   ov.innerHTML = '<div class="sheet mic"></div>'; document.body.appendChild(ov);
@@ -512,7 +512,7 @@ function openMicCheck({ pieceId, onResult, quick = false, audition = false }) {
   const ready = () => {
     const bpm = Math.round(piece.bpm * 0.8);
     sh.innerHTML = `<h2>${audition ? 'Audition' : quick ? 'Quick listen' : 'Ticket inspection'}: ${esc(piece.title)}</h2>
-      <div class="staffwrap">${pieceScore(piece, { letters: (p.readingLevel ?? 0) <= 2 && !chords, barsPerLine: 2 })}</div>
+      <div class="staffwrap">${pieceScore(piece, { letters: (p.readingLevel ?? 0) <= 2 && !chords && !piece.grand, barsPerLine: 2 })}</div>
       <p>${viaMidi ? `🎹 Listening to your keyboard (${esc(midiName())}). ` : ''}Tap Start. After ${(piece.beatsPerBar || 4)} clicks, play${piece.lh ? ' the right hand' : ''}. Any steady speed is fine.${chords && !viaMidi ? ' Play each chord firmly, all notes together.' : ''}</p>
       <div class="meter" aria-hidden="true"><span></span></div><p class="heard" aria-live="polite">&nbsp;</p>
       <div class="row"><button class="btn primary big" data-start>Start</button><button class="btn" data-done hidden>I'm done</button></div>${cancelBtn}`;

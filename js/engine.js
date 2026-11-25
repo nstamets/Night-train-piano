@@ -94,7 +94,7 @@ export function passStation(p, stId, how = 'passed', detail = {}) {
 // (mini-lessons become optional, more new material per session, higher starting tempo).
 export function paceFast(p) {
   const firsts = Object.entries(p.items)
-    .filter(([id, s]) => ITEMS[id] && ['piano', 'keyquiz', 'readquiz', 'rhythm', 'ear', 'chordquiz', 'choice'].includes(ITEMS[id].type) && s.history && s.history.length)
+    .filter(([id, s]) => ITEMS[id] && ['piano', 'keyquiz', 'readquiz', 'rhythm', 'ear', 'chordquiz', 'choice', 'echo'].includes(ITEMS[id].type) && s.history && s.history.length)
     .map(([, s]) => s.history[0].r);
   if (firsts.length < 3) return p.level === 'experienced';
   return firsts.filter(r => r === 'clean').length / firsts.length >= 0.7;
@@ -160,7 +160,7 @@ export function buildSession(p, minutes = 15, now = Date.now(), rand = Math.rand
   // Skill work: reading / ear / rhythm, pick the weakest skill that has an item available
   const skillOrder = ['reading', 'ear', 'rhythm'].sort((a, b) => (p.skills[a] || 0) - (p.skills[b] || 0));
   for (const sk of skillOrder) {
-    const cand = shuffle(pool.filter(id => ['readquiz', 'ear', 'rhythm', 'keyquiz', 'chordquiz', 'choice'].includes(ITEMS[id].type) && ITEMS[id].skill === sk && !used.has(id)), rand);
+    const cand = shuffle(pool.filter(id => ['readquiz', 'ear', 'rhythm', 'keyquiz', 'chordquiz', 'choice', 'echo'].includes(ITEMS[id].type) && ITEMS[id].skill === sk && !used.has(id)), rand);
     if (cand[0]) { add('skill', cand[0], 'Ear & reading'); break; }
   }
 

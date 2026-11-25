@@ -6,6 +6,25 @@ let ctx = null;
 let master = null;
 let backing = null;
 let backingLevel = 1;
+// While a playback is being scheduled, its sounds go through its own buses so Stop can silence them instantly.
+let routeMain = null, routeBack = null;
+const outMain = () => routeMain || master;
+const outBack = () => routeBack || backing;
+export function makeRoute() {
+  const c = audio();
+  const m = c.createGain(); m.connect(master);
+  const b = c.createGain(); b.connect(backing);
+  let dead = false;
+  return {
+    run(fn) { if (dead) return; const pm = routeMain, pb = routeBack; routeMain = m; routeBack = b; try { return fn(); } finally { routeMain = pm; routeBack = pb; } },
+    stop() {
+      if (dead) return; dead = true;
+      const t = c.currentTime;
+      [m, b].forEach(g => { g.gain.cancelScheduledValues(t); g.gain.setValueAtTime(g.gain.value, t); g.gain.linearRampToValueAtTime(0, t + 0.04); });
+      setTimeout(() => { try { m.disconnect(); b.disconnect(); } catch { /* ignore */ } }, 300);
+    },
+  };
+}
 
 // Backing tracks (pads, band) go through their own volume control.
 export function setBackingVolume(v) { backingLevel = v; if (backing) backing.gain.value = v; }
@@ -44,7 +63,7 @@ export function playNote(midi, { when = 0, dur = 0.8, vel = 0.7 } = {}) {
   const release = Math.min(dur, ring);
   const out = c.createGain();
   out.gain.value = 0;
-  out.connect(master);
+  out.connect(outMain());
   const B = 0.0004; // inharmonicity
   PARTIALS.forEach((amp, i) => {
     const n = i + 1;
@@ -72,7 +91,7 @@ export function playNote(midi, { when = 0, dur = 0.8, vel = 0.7 } = {}) {
   const ns = c.createBufferSource(); ns.buffer = nb;
   const nf = c.createBiquadFilter(); nf.type = 'bandpass'; nf.frequency.value = Math.min(f0 * 4, 4000); nf.Q.value = 1;
   const ng = c.createGain(); ng.gain.value = 0.05 * vel;
-  ns.connect(nf); nf.connect(ng); ng.connect(master); ns.start(t0);
+  ns.connect(nf); nf.connect(ng); ng.connect(outMain()); ns.start(t0);
   return t0;
 }
 
@@ -83,7 +102,7 @@ export function click(when, accent = false, loud = false) {
   o.type = 'square'; o.frequency.value = accent ? 1760 : 1175;
   g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime((accent ? 0.22 : 0.13) * (loud ? 2.6 : 1), t + 0.001);
   g.gain.exponentialRampToValueAtTime(0.0001, t + 0.05);
-  o.connect(g); g.connect(master); o.start(t); o.stop(t + 0.06);
+  o.connect(g); g.connect(outMain()); o.start(t); o.stop(t + 0.06);
 }
 
 // Soft pad chord for improvisation backing (sustained, gentle).
@@ -95,7 +114,7 @@ export function pad(midis, when, dur) {
     const g = c.createGain();
     g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.13, t + 0.3);
     g.gain.setValueAtTime(0.13, t + dur - 0.3); g.gain.linearRampToValueAtTime(0, t + dur);
-    o.connect(g); g.connect(backing); o.start(t); o.stop(t + dur + 0.05);
+    o.connect(g); g.connect(outBack()); o.start(t); o.stop(t + dur + 0.05);
   });
 }
 
@@ -108,7 +127,7 @@ function noise() {
 }
 export function drum(kind, t, vel = 1) {
   const c = audio(); t = Math.max(c.currentTime, t);
-  const g = c.createGain(); g.connect(backing);
+  const g = c.createGain(); g.connect(outBack());
   if (kind === 'kick') {
     const o = c.createOscillator(); o.frequency.setValueAtTime(130, t); o.frequency.exponentialRampToValueAtTime(45, t + 0.12);
     g.gain.setValueAtTime(0.55 * vel, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
@@ -119,7 +138,7 @@ export function drum(kind, t, vel = 1) {
     f.type = conf[0]; f.frequency.value = conf[1];
     g.gain.setValueAtTime(conf[2] * vel, t); g.gain.exponentialRampToValueAtTime(0.001, t + conf[3]);
     n.connect(f); f.connect(g); n.start(t, Math.random() * 0.5); n.stop(t + conf[3] + 0.02);
-    if (kind === 'snare') { const o = c.createOscillator(); o.frequency.value = 190; const g2 = c.createGain(); g2.gain.setValueAtTime(0.18 * vel, t); g2.gain.exponentialRampToValueAtTime(0.001, t + 0.08); o.connect(g2); g2.connect(backing); o.start(t); o.stop(t + 0.1); }
+    if (kind === 'snare') { const o = c.createOscillator(); o.frequency.value = 190; const g2 = c.createGain(); g2.gain.setValueAtTime(0.18 * vel, t); g2.gain.exponentialRampToValueAtTime(0.001, t + 0.08); o.connect(g2); g2.connect(outBack()); o.start(t); o.stop(t + 0.1); }
   }
 }
 export function bass(midi, t, dur, vel = 1) {
@@ -130,7 +149,7 @@ export function bass(midi, t, dur, vel = 1) {
   const g = c.createGain();
   g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.32 * vel, t + 0.01);
   g.gain.exponentialRampToValueAtTime(0.12 * vel, t + Math.min(dur, 0.4)); g.gain.setValueAtTime(0.12 * vel, t + Math.max(0.02, dur - 0.05)); g.gain.linearRampToValueAtTime(0, t + dur);
-  o.connect(lp); o2.connect(lp); lp.connect(g); g.connect(backing);
+  o.connect(lp); o2.connect(lp); lp.connect(g); g.connect(outBack());
   o.start(t); o2.start(t); o.stop(t + dur + 0.05); o2.stop(t + dur + 0.05);
 }
 
@@ -167,7 +186,7 @@ export function scheduleBand(chords, { start, spb, style = 'worship', beatsPerBa
 // ---------- Scheduler for metronome + play-along ----------
 // events: [{beat, midi, dur(beats)}]; beatsPerBar; bpm.
 // Returns a controller with stop(). onBeat(beatIndex, time) and onNote(i) callbacks run in sync (setTimeout aligned).
-export function schedulePlayback({ events = [], bpm = 80, beatsPerBar = 4, countIn = 1, metronome = true, playNotes = true, loop = false, onBeat, onNote, onEnd, startBeat = 0, accompany = null, band = null, bandStyle = 'worship', loudClicks = false }) {
+export function schedulePlayback({ events = [], bpm = 80, beatsPerBar = 4, countIn = 1, metronome = true, playNotes = true, loop = false, onBeat, onNote, onEnd, startBeat = 0, accompany = null, band = null, bandStyle = 'worship', loudClicks = false, swing = false }) {
   const c = audio();
   const spb = 60 / bpm;
   const allEv = events.concat(accompany || []);
@@ -176,10 +195,12 @@ export function schedulePlayback({ events = [], bpm = 80, beatsPerBar = 4, count
   const countBeats = countIn * beatsPerBar;
   let start = c.currentTime + 0.15;
   let stopped = false;
+  const route = makeRoute();
   const timers = [];
   function at(time, fn) { const ms = (time - c.currentTime) * 1000; timers.push(setTimeout(() => { if (!stopped) fn(); }, Math.max(0, ms))); }
 
-  function runPass(passStart, isFirst) {
+  function runPass(passStart, isFirst) { return route.run(() => runPassInner(passStart, isFirst)); }
+  function runPassInner(passStart, isFirst) {
     const cb = isFirst ? countBeats : 0;
     for (let b = 0; b < cb; b++) {
       const t = passStart + b * spb;
@@ -198,9 +219,10 @@ export function schedulePlayback({ events = [], bpm = 80, beatsPerBar = 4, count
       (Array.isArray(e.midi) ? e.midi : [e.midi]).forEach(m => playNote(m, { when: t, dur: e.dur * spb * 0.95, vel: 0.6 }));
     });
     if (band) scheduleBand(band.filter(ch => ch.beat >= startBeat).map(ch => ({ ...ch, beat: ch.beat - startBeat })), { start: musicStart, spb, style: bandStyle, beatsPerBar, lengthBeats });
+    const sw = b => swing && Math.abs((b % 1) - 0.5) < 1e-6 ? b + 1 / 6 : b;
     events.forEach((e, i) => {
       if (e.beat < startBeat) return;
-      const t = musicStart + (e.beat - startBeat) * spb;
+      const t = musicStart + (sw(e.beat) - startBeat) * spb;
       if (playNotes) (Array.isArray(e.midi) ? e.midi : [e.midi]).forEach(m => playNote(m, { when: t, dur: e.dur * spb * 0.95 }));
       at(t, () => onNote && onNote(i, t));
     });
@@ -214,7 +236,7 @@ export function schedulePlayback({ events = [], bpm = 80, beatsPerBar = 4, count
   const musicStart = runPass(start, true);
   return {
     musicStart, spb, lengthBeats, loop,
-    stop() { stopped = true; timers.forEach(clearTimeout); },
+    stop() { stopped = true; timers.forEach(clearTimeout); route.stop(); },
   };
 }
 

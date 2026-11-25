@@ -16,8 +16,9 @@ export function parse(str) {
     const [dur, finger] = (ci >= 0 ? tok.slice(ci + 1) : '1').split('/');
     const d = +dur;
     if (note !== 'R') {
-      const midi = note.startsWith('[') ? note.slice(1, -1).split(',').map(toMidi) : toMidi(note);
-      const ev = { midi, beat, dur: d };
+      const names = note.startsWith('[') ? note.slice(1, -1).split(',') : null;
+      const midi = names ? names.map(toMidi) : toMidi(note);
+      const ev = { midi, beat, dur: d, sp: names || note }; // sp keeps the written spelling (G# vs Ab)
       if (finger) ev.finger = +finger;
       if (sym) ev.sym = sym.replace(/_/g, ' ');
       out.push(ev);
@@ -38,6 +39,15 @@ export function chart(str, octave = 3) {
   return out;
 }
 
+// Bach Prelude in C: each half bar is n1 n2 n3 n4 n5 n3 n4 n5 in sixteenths. Left hand takes the first two notes, right hand the rest.
+function preludeBars(bars) {
+  const out = []; let beat = 0;
+  bars.forEach(([n1, n2, n3, n4, n5]) => {
+    for (let h = 0; h < 2; h++) [n1, n2, n3, n4, n5, n3, n4, n5].forEach((n, i) => { out.push({ midi: toMidi(n), sp: n, beat, dur: 0.25, finger: i >= 2 ? [1, 2, 4][(i - 2) % 3] : undefined }); beat += 0.25; });
+  });
+  return out;
+}
+
 export const THEMES = [
   { id: 'midnight', name: 'Midnight Express', desc: 'Deep blue, lamplight gold' },
   { id: 'sleeper', name: 'Sleeper Car', desc: 'Warm wood and brass' },
@@ -50,7 +60,8 @@ export const LINES = [
   { id: 'carol', name: 'Carol Line', who: 'Songs and Christmas carols, solo and duet', ready: true },
   { id: 'gospel', name: 'Gospel Line', who: 'Worship chords, charts, and playing with a team', ready: true },
   { id: 'conservatory', name: 'Conservatory Line', who: 'Classical technique and repertoire', ready: true },
-  { id: 'bluenote', name: 'Blue Note Line', who: 'Jazz and pop: grooves, 7th chords, lead sheets', ready: true },
+  { id: 'bluenote', name: 'Blue Note Line', who: 'Jazz: 7th chords, swing, comping, improvising', ready: true },
+  { id: 'radio', name: 'Radio Line', who: 'Pop: accompaniment grooves, lead sheets, playing by ear', ready: true },
 ];
 
 // ---------- Pieces ----------
@@ -108,6 +119,56 @@ export const PIECES = {
   charleston: { title: 'Charleston comping', clef: 'bass', bpm: 112, range: [41, 64], hand: 'LH', judge: 'chords',
     notes: parse('[D3,F3]:1.5@Dm7 [D3,F3]:0.5 R:2 | [G2,F3]:1.5@G7 [G2,F3]:0.5 R:2 | [C3,E3]:1.5@Cmaj7 [C3,E3]:0.5 R:2 | [C3,E3]:1.5 [C3,E3]:0.5 R:2'),
     band: chart('Dm7:4 G7:4 C:8', 2), bandStyle: 'swing' },
+
+  // ---- Conservatory: more stations ----
+  arpC: { title: 'C major arpeggio (right hand)', notes: parse('C4:0.5/1 E4:0.5/2 G4:0.5/3 C5:0.5/1 E5:0.5/2 G5:0.5/3 C6:1/5 | G5:0.5/3 E5:0.5/2 C5:0.5/1 G4:0.5/3 E4:0.5/2 C4:1.5/1'),
+    bpm: 80, range: [57, 86], hand: 'RH' },
+  prelude: { title: 'Prelude in C (bars 1–8)', credit: 'J. S. Bach, BWV 846, 1722 (public domain)', bpm: 66, range: [57, 84], hand: 'RH',
+    notes: preludeBars([['C4', 'E4', 'G4', 'C5', 'E5'], ['C4', 'D4', 'A4', 'D5', 'F5'], ['B3', 'D4', 'G4', 'D5', 'F5'], ['C4', 'E4', 'G4', 'C5', 'E5'],
+      ['C4', 'E4', 'A4', 'E5', 'A5'], ['C4', 'D4', 'F#4', 'A4', 'D5'], ['B3', 'D4', 'G4', 'D5', 'G5'], ['B3', 'C4', 'E4', 'G4', 'C5']]),
+    phrases: [[0, 31], [32, 63], [64, 95], [96, 127]] },
+  dScale: { title: 'D major scale (right hand)', notes: parse('D4:0.5/1 E4:0.5/2 F#4:0.5/3 G4:0.5/1 A4:0.5/2 B4:0.5/3 C#5:0.5/4 D5:0.5/5 | C#5:0.5/4 B4:0.5/3 A4:0.5/2 G4:0.5/1 F#4:0.5/3 E4:0.5/2 D4:1/1'),
+    keySig: { sharps: 2 }, bpm: 84, range: [57, 76], hand: 'RH' },
+  minuet2: { title: 'Minuet in G (bars 9–24)', credit: 'Christian Petzold, c. 1725 (public domain)', beatsPerBar: 3, keySig: { sharps: 1 },
+    notes: parse('D5:1/5 G4:0.5/1 A4:0.5/2 B4:0.5/3 C5:0.5/4 | D5:1/5 G4:1/1 G4:1/1 | E5:1/4 C5:0.5/1 D5:0.5/2 E5:0.5/3 F#5:0.5/4 | G5:1/5 G4:1/1 G4:1/1 | C5:1/4 D5:0.5/5 C5:0.5/4 B4:0.5/3 A4:0.5/2 | B4:1/3 C5:0.5/4 B4:0.5/3 A4:0.5/2 G4:0.5/1 | A4:1/2 B4:0.5/3 A4:0.5/2 G4:0.5/1 F#4:0.5/2 | G4:3/1 | '
+      + 'B5:1/5 G5:0.5/3 A5:0.5/4 B5:0.5/5 G5:0.5/3 | A5:1/4 D5:0.5/1 E5:0.5/2 F#5:0.5/3 D5:0.5/1 | G5:1/4 E5:0.5/2 F#5:0.5/3 G5:0.5/4 D5:0.5/1 | C#5:1/3 B4:0.5/2 C#5:0.5/3 A4:1/1 | '
+      + 'A4:0.5/1 B4:0.5/2 C#5:0.5/3 D5:0.5/1 E5:0.5/2 F#5:0.5/3 | G5:1/4 F#5:1/3 E5:1/2 | F#5:1/3 A4:1/1 C#5:1/2 | D5:3/3'),
+    lh: parse('G3:3 | B3:3 | C4:3 | B3:3 | A3:3 | G3:3 | D3:3 | G3:3 | G3:3 | F#3:3 | E3:3 | A3:3 | A3:3 | A3:3 | A3:3 | D3:3'),
+    lhNote: 'Simplified left hand: one bass note per bar.',
+    bpm: 108, range: [48, 84], hand: 'RH', phrases: [[0, 31], [32, 50], [51, 63]] },
+  aMinor: { title: 'A harmonic minor scale (right hand)', notes: parse('A4:0.5/1 B4:0.5/2 C5:0.5/3 D5:0.5/1 E5:0.5/2 F5:0.5/3 G#5:0.5/4 A5:0.5/5 | G#5:0.5/4 F5:0.5/3 E5:0.5/2 D5:0.5/1 C5:0.5/3 B4:0.5/2 A4:1/1'),
+    bpm: 84, range: [64, 84], hand: 'RH' },
+  elise: { title: 'Für Elise (bars 1–8)', credit: 'Ludwig van Beethoven, 1810 (public domain)', beatsPerBar: 3, timeBottom: 8, grand: true, bpm: 132, range: [40, 77], hand: 'both',
+    notes: parse('R:2 E5:0.5/5 D#5:0.5/4 | E5:0.5/5 D#5:0.5/4 E5:0.5/5 B4:0.5/2 D5:0.5/4 C5:0.5/3 | [A2,A4]:0.5/1 E3:0.5 A3:0.5 C4:0.5/1 E4:0.5/2 A4:0.5/3 | [E2,B4]:0.5/4 E3:0.5 G#3:0.5 E4:0.5/1 G#4:0.5/3 B4:0.5/4 | [A2,C5]:0.5/5 E3:0.5 A3:0.5 E4:0.5/1 E5:0.5/5 D#5:0.5/4 | '
+      + 'E5:0.5/5 D#5:0.5/4 E5:0.5/5 B4:0.5/2 D5:0.5/4 C5:0.5/3 | [A2,A4]:0.5/1 E3:0.5 A3:0.5 C4:0.5/1 E4:0.5/2 A4:0.5/3 | [E2,B4]:0.5/4 E3:0.5 G#3:0.5 E4:0.5/1 C5:0.5/4 B4:0.5/3 | [A2,A4]:1.5/2 R:1.5'),
+    phrases: [[0, 25], [26, 44]] },
+
+  // ---- Blue Note: more stations ----
+  blues12: { title: '12-bar blues shells', clef: 'bass', bpm: 120, range: [41, 64], hand: 'LH', judge: 'chords', bandStyle: 'swing',
+    notes: parse('[C3,Bb3]:4@C7 | [C3,Bb3]:4 | [C3,Bb3]:4 | [C3,Bb3]:4 | [F3,A3]:4@F7 | [F3,A3]:4 | [C3,Bb3]:4@C7 | [C3,Bb3]:4 | [G2,F3]:4@G7 | [F3,A3]:4@F7 | [C3,Bb3]:4@C7 | [G2,F3]:4@G7'),
+    band: chart('C7:4 C7:4 C7:4 C7:4 F7:4 F7:4 C7:4 C7:4 G7:4 F7:4 C7:4 G7:4', 2) },
+  bluesComp: { title: 'Comping on 2 and 4', clef: 'bass', bpm: 120, range: [41, 64], hand: 'LH', judge: 'chords', bandStyle: 'swing',
+    notes: parse('R:1 [C3,Bb3]:1@C7 R:1 [C3,Bb3]:1 | R:1 [C3,Bb3]:1 R:1 [C3,Bb3]:1 | R:1 [F3,A3]:1@F7 R:1 [F3,A3]:1 | R:1 [C3,Bb3]:1@C7 R:1 [C3,Bb3]:1'),
+    band: chart('C7:4 C7:4 F7:4 C7:4', 2) },
+  bluesRiff: { title: 'Blues riff (swing it)', bpm: 120, range: [55, 81], hand: 'RH', swing: true, bandStyle: 'swing',
+    notes: parse('G4:0.5/1 Bb4:0.5/2 C5:1/3 Eb5:0.5/4 C5:0.5/3 R:1 | G4:0.5/1 Bb4:0.5/2 C5:1/3 F5:0.5/4 F#5:0.5/4 G5:1/5 | G4:0.5/1 Bb4:0.5/2 C5:1/3 Eb5:0.5/4 C5:0.5/3 R:1 | Bb4:0.5/2 G4:0.5/1 Bb4:0.5/2 C5:2.5/3'),
+    band: chart('C7:4 C7:4 C7:4 C7:4', 2) },
+  rootlessC: { title: 'Rootless ii – V – I in C', clef: 'bass', bpm: 100, range: [48, 69], hand: 'LH', judge: 'chords', bandStyle: 'swing',
+    notes: parse('[F3,A3,C4,E4]:4@Dm9 | [F3,A3,B3,E4]:4@G13 | [E3,G3,B3,D4]:4@Cmaj9 | [E3,G3,B3,D4]:4'),
+    band: chart('Dm7:4 G7:4 C:8', 2) },
+  rootlessF: { title: 'Rootless ii – V – I in F', clef: 'bass', bpm: 100, range: [52, 72], hand: 'LH', judge: 'chords', bandStyle: 'swing',
+    notes: parse('[Bb3,D4,F4,A4]:4@Gm9 | [Bb3,D4,E4,A4]:4@C13 | [A3,C4,E4,G4]:4@Fmaj9 | [A3,C4,E4,G4]:4'),
+    band: chart('Gm7:4 C7:4 F:8', 2) },
+
+  // ---- Radio Line (pop) ----
+  popGroove: { title: 'Pop groove: C – G – Am – F', bpm: 92, range: [41, 72], hand: 'RH', judge: 'chords', bandStyle: 'pop',
+    notes: parse('[C4,E4,G4]:1.5@C [C4,E4,G4]:1.5 [C4,E4,G4]:1 | [B3,D4,G4]:1.5@G [B3,D4,G4]:1.5 [B3,D4,G4]:1 | [C4,E4,A4]:1.5@Am [C4,E4,A4]:1.5 [C4,E4,A4]:1 | [C4,F4,A4]:1.5@F [C4,F4,A4]:1.5 [C4,F4,A4]:1'),
+    lh: parse('C3:1 G3:1 C4:2 | G2:1 D3:1 G3:2 | A2:1 E3:1 A3:2 | F2:1 C3:1 F3:2'),
+    band: chart('C:4 G:4 Am:4 F:4') },
+  platformSong: { title: 'Platform Song (lead sheet)', credit: 'Original melody for Night Train', keySig: { sharps: 1 }, bpm: 96, range: [40, 76], hand: 'RH', bandStyle: 'pop',
+    notes: parse('B4:1/3@G B4:1/3 A4:1/2 G4:1/1 | A4:1.5/2@D B4:0.5/3 A4:2/2 | G4:1/1@Em B4:1/3 D5:1/5 B4:1/3 | C5:3/4@C B4:1/3 | B4:1/3@G D5:1/5 D5:1/5 B4:1/3 | A4:1/2@D F#4:1/1 A4:2/3 | G4:1/2@C E4:1/1 G4:1/2 A4:1/3 | G4:4/2@G'),
+    lh: parse('[G2,D3]:4 | [D3,A3]:4 | [E2,B2]:4 | [C3,G3]:4 | [G2,D3]:4 | [D3,A3]:4 | [C3,G3]:4 | [G2,D3]:4'),
+    band: chart('G:4 D:4 Em:4 C:4 G:4 D:4 C:4 G:4'), phrases: [[0, 12], [13, 24]] },
 };
 
 // ---------- Items ----------
@@ -243,6 +304,106 @@ export const ITEMS = {
   'b1.blues': { type: 'improv', title: 'Blues scale jam', skill: 'ear', minutes: 3, band: chart('C7:4 C7:4 C7:4 C7:4 F7:4 F7:4 C7:4 C7:4 G7:4 F7:4 C7:4 G7:4', 2), bandStyle: 'swing', bpm: 120, blues: true,
     howto: 'A 12-bar blues in C with a swinging band. Use the C blues scale: C E♭ F F♯ G B♭ (marked keys). Start with 2–3 notes, leave space, repeat ideas. Bend toward the F♯ and resolve to G or C.' },
   'b1.check': { type: 'checkpoint', title: 'Ticket inspection: ii – V – I shells', piece: 'shells', skill: 'theory', minutes: 3 },
+
+  // ---- Conservatory: Prelude Platform ----
+  'k2.lesson': { type: 'lesson', title: 'Broken chords and harmony', skill: 'theory', minutes: 2, slides: [
+    { text: 'Bach\'s Prelude in C is made entirely of broken chords. Each bar is one chord, played as a rippling pattern twice.' },
+    { text: 'The hands share the line: the left hand plays the first two notes of each group (and holds them), the right hand plays the three upper notes twice.' },
+    { text: 'The music is in the harmony. Listen for how each new chord feels: home, away, tension, home. Shape the dynamics with it, and keep every sixteenth perfectly even.' },
+  ] },
+  'k2.arp': { type: 'piano', title: 'C major arpeggio', piece: 'arpC', skill: 'technique', minutes: 2.5, core: true,
+    howto: 'Thumb passes under after G (finger 3) to the next C. Keep the wrist level and let the arm travel smoothly. No bumps at the thumb crossing.' },
+  'k2.prelude': { type: 'piano', title: 'Prelude in C', piece: 'prelude', skill: 'reading', minutes: 4, core: true,
+    howto: 'Learn two bars at a time (the phrases). Left hand: the low two notes, held. Right hand: the upper three notes, fingers 1 2 4. Aim for a calm, even ripple, like water.' },
+  'k2.ear': { type: 'ear', title: 'Major or minor?', skill: 'ear', minutes: 1.5, ear: 'majmin', count: 6 },
+  'k2.check': { type: 'checkpoint', title: 'Ticket inspection: Prelude in C', piece: 'prelude', skill: 'reading', minutes: 3 },
+
+  // ---- Conservatory: Ballroom Return ----
+  'k3.lesson': { type: 'lesson', title: 'Second endings and a new key', skill: 'theory', minutes: 2, slides: [
+    { text: 'Bars 9–16 repeat the opening, but bar 15 turns home to G instead of stopping on A. Composers love a familiar idea with a new ending.' },
+    { text: 'Bars 17–24 travel to D major: watch for C♯ (the black key just right of C). The piece ends this half on D, the new home.', staff: { notes: 'D5:1 E5:1 F#5:1 | G5:1 A5:1 B5:1 | C#6:1 D6:2', keySig: 1, bpb: 3 } },
+    { text: 'Contrast: play the second half a little brighter and louder (forte), then relax at the end of each phrase.' },
+  ] },
+  'k3.scale': { type: 'piano', title: 'D major scale', piece: 'dScale', skill: 'technique', minutes: 2.5, core: true,
+    howto: 'Two sharps: F♯ and C♯. Thumb tucks under after F♯ (finger 3). Listen for even, connected notes.' },
+  'k3.minuet': { type: 'piano', title: 'Minuet in G, bars 9–24', piece: 'minuet2', skill: 'reading', minutes: 4, core: true,
+    howto: 'Phrase 1 should feel familiar. Phrase 2 jumps up to B5 (finger 5): prepare the hand early. Phrase 3 climbs with an A major scale fragment. Hands separate first.' },
+  'k3.check': { type: 'checkpoint', title: 'Ticket inspection: Minuet bars 9–24', piece: 'minuet2', skill: 'reading', minutes: 3 },
+
+  // ---- Conservatory: Für Elise Falls ----
+  'k4.lesson': { type: 'lesson', title: 'Für Elise, 3/8, and the pedal', skill: 'technique', minutes: 2.5, slides: [
+    { text: 'Für Elise is in 3/8: three eighth notes per bar, felt as one gentle pulse per bar. The famous E–D♯ turn starts before bar 1 (a pickup).' },
+    { text: 'The hands take turns: left hand plays A–E–A low, then the right hand continues up. It should sound like one smooth line passed between hands.' },
+    { text: 'Sustain pedal (right pedal): press it right after the bass note sounds, and lift-then-press again with each new bass note. This is legato pedaling: smooth, never blurred.' },
+    { text: 'The app cannot see your foot. After each try, ask yourself: any blur when the harmony changed? Any gap in sound? Recording a take helps you hear it.' },
+  ] },
+  'k4.pedal': { type: 'piano', title: 'Pedal changes', skill: 'technique', minutes: 2,
+    howto: 'Play a low A, then press the pedal. Play a low E: as it sounds, lift the pedal and press it again. Then back to A. Repeat slowly with your eyes closed, listening for clean, connected changes.',
+    selfCheck: ['Pedal goes down just AFTER each bass note', 'No blur between A and E', 'No silence gap between changes', 'Heel stays on the floor, foot moves from the ankle'] },
+  'k4.scale': { type: 'piano', title: 'A harmonic minor scale', piece: 'aMinor', skill: 'technique', minutes: 2, core: true,
+    howto: 'Like A minor (all white keys) but with G♯. That G♯ gives the exotic, classical sound you hear in Für Elise.' },
+  'k4.elise': { type: 'piano', title: 'Für Elise', piece: 'elise', skill: 'reading', minutes: 4, core: true,
+    howto: 'Start with the E–D♯ turn: fingers 5 and 4, light and relaxed. The left hand enters on the low A. Keep it soft (pianissimo) and flowing. Pedal once comfortable.' },
+  'k4.check': { type: 'checkpoint', title: 'Ticket inspection: Für Elise', piece: 'elise', skill: 'reading', minutes: 3 },
+
+  // ---- Blue Note: Swing Street ----
+  'b2.lesson': { type: 'lesson', title: 'Swing feel and the 12-bar blues', skill: 'rhythm', minutes: 2.5, slides: [
+    { text: 'Swing eighths are written as even eighths but played long-short, like "doo-ba doo-ba". The first note gets about two-thirds of the beat.' },
+    { text: 'The 12-bar blues: 4 bars of C7, 2 of F7, 2 of C7, then G7 – F7 – C7 – G7. It is the backbone of jazz, rock, and R&B.' },
+    { text: 'Comping (accompanying) on beats 2 and 4 locks in with the drummer\'s hi-hat. Short, crisp chords. Space is part of the groove.' },
+  ] },
+  'b2.tap': { type: 'rhythm', title: 'Tap the swing', skill: 'rhythm', minutes: 1.5, core: true, swing: true, pattern: [0.5, 0.5, 0.5, 0.5, 1, 1, 0.5, 0.5, 0.5, 0.5, 2], bpm: 100,
+    intro: 'Tap long-short on each pair of eighths, like "doo-ba". Quarter notes stay even.' },
+  'b2.shells': { type: 'piano', title: '12-bar blues shells', piece: 'blues12', skill: 'technique', minutes: 3, core: true,
+    howto: 'C7 = C + B♭. F7 = F + A (the B♭ slides down to A). G7 = G + F. Whole notes with the band; know where you are in the 12 bars.' },
+  'b2.comp': { type: 'piano', title: 'Comping on 2 and 4', piece: 'bluesComp', skill: 'rhythm', minutes: 3, core: true,
+    howto: 'Rest on 1, short chord on 2, rest on 3, short chord on 4. Crisp and light, like a snare backbeat.' },
+  'b2.riff': { type: 'piano', title: 'Blues riff', piece: 'bluesRiff', skill: 'reading', minutes: 3, core: true,
+    howto: 'An original riff using the blues scale. Swing the eighths. The F–F♯–G in bar 2 is the "blue note" slide.' },
+  'b2.jam': { type: 'improv', title: 'Trade fours', skill: 'ear', minutes: 3, band: chart('C7:4 C7:4 C7:4 C7:4 F7:4 F7:4 C7:4 C7:4 G7:4 F7:4 C7:4 G7:4', 2), bandStyle: 'swing', bpm: 120, blues: true,
+    howto: 'Jazz players "trade fours": play for 4 bars, then rest and listen for 4. Try it: use the riff, then change one note, then change its rhythm. Leave space!' },
+  'b2.check': { type: 'checkpoint', title: 'Ticket inspection: Blues riff', piece: 'bluesRiff', skill: 'reading', minutes: 3 },
+
+  // ---- Blue Note: Rootless Row ----
+  'b3.lesson': { type: 'lesson', title: 'Rootless voicings', skill: 'theory', minutes: 2.5, slides: [
+    { text: 'With a bass player on the gig, the pianist can leave out the root. The left hand plays four colorful notes near middle C: 3rd, 5th, 7th, and 9th.' },
+    { text: 'ii – V – I in C, rootless: Dm9 = F A C E, G13 = F A B E, Cmaj9 = E G B D. Only one or two notes move each time: the hand barely shifts.', staff: { notes: '[F3,A3,C4,E4]:4@Dm9 | [F3,A3,B3,E4]:4@G13 | [E3,G3,B3,D4]:4@Cmaj9', clef: 'bass' } },
+    { text: 'This is how pros sound "jazzy" with almost no effort. Learn the shapes in C, then move them to F.' },
+  ] },
+  'b3.build': { type: 'chordquiz', title: 'Spell the rootless voicings', skill: 'theory', minutes: 2, core: true, chords: ['Dm9 rootless', 'G13 rootless', 'Cmaj9 rootless', 'Gm9 rootless', 'C13 rootless', 'Fmaj9 rootless'], count: 5 },
+  'b3.c': { type: 'piano', title: 'Rootless ii – V – I in C', piece: 'rootlessC', skill: 'technique', minutes: 3, core: true,
+    howto: 'F A C E → F A B E (only C moves to B) → E G B D. The band plays the roots. Hold each chord for a bar, then try Charleston rhythm on your own.' },
+  'b3.f': { type: 'piano', title: 'Rootless ii – V – I in F', piece: 'rootlessF', skill: 'technique', minutes: 3, core: true,
+    howto: 'Same shapes, new key: Gm9 = B♭ D F A, C13 = B♭ D E A, Fmaj9 = A C E G.' },
+  'b3.dorian': { type: 'improv', title: 'Dorian vamp', skill: 'ear', minutes: 3, band: chart('Dm7:4 G7:4 Dm7:4 G7:4', 2), bandStyle: 'swing', bpm: 110, dorian: true,
+    howto: 'D Dorian is simply the white keys from D to D. Over this Dm7 – G7 vamp, every white key works. Aim for chord tones (D F A C) on beat 1, and use the B to make it sound "modal".' },
+  'b3.check': { type: 'checkpoint', title: 'Ticket inspection: Rootless ii – V – I', piece: 'rootlessC', skill: 'theory', minutes: 3 },
+
+  // ---- Radio Line: Four-Chord Diner ----
+  'p1.lesson': { type: 'lesson', title: 'Pop accompaniment', skill: 'rhythm', minutes: 2, slides: [
+    { text: 'Most pop piano is a left-hand pattern plus right-hand chords. The left hand here plays root – fifth – octave, like a gentle bass line.' },
+    { text: 'The right hand uses the "3 + 3 + 2" rhythm: long, long, short (count 1-2-3, 1-2-3, 1-2). It is everywhere on the radio.' },
+    { text: 'Smooth voicings again: C (C E G) → G (B D G) → Am (C E A) → F (C F A). The thumb barely moves.', staff: { notes: '[C4,E4,G4]:4@C | [B3,D4,G4]:4@G | [C4,E4,A4]:4@Am | [C4,F4,A4]:4@F' } },
+  ] },
+  'p1.groove': { type: 'piano', title: 'Pop groove', piece: 'popGroove', skill: 'rhythm', minutes: 3.5, core: true,
+    howto: 'Right hand alone with the band first (3 + 3 + 2). Then the left hand pattern. Then hands together, slowly.' },
+  'p1.echo': { type: 'echo', title: 'Play it by ear', skill: 'ear', minutes: 2.5, core: true, count: 5, start: 3 },
+  'p1.hook': { type: 'improv', title: 'Write a hook', skill: 'theory', minutes: 3, band: chart('C:4 G:4 Am:4 F:4'), bandStyle: 'pop', bpm: 92, pentatonic: true,
+    howto: 'Over the four chords, make up a short catchy melody (a hook) with the marked notes (C D E G A). Repeat it until it sticks. Record a take of your favorite!' },
+  'p1.check': { type: 'checkpoint', title: 'Ticket inspection: Pop groove', piece: 'popGroove', skill: 'rhythm', minutes: 3 },
+
+  // ---- Radio Line: Lead Sheet Lane ----
+  'p2.lesson': { type: 'lesson', title: 'Reading a lead sheet', skill: 'reading', minutes: 2, slides: [
+    { text: 'A lead sheet shows only the melody, with chord symbols above. The pianist invents the accompaniment.' },
+    { text: 'Simplest version: right hand plays the melody, left hand plays the root and fifth of each chord. Then add rhythm and movement in the left hand.' },
+    { text: 'Rule of thumb: the melody is the star. Keep the left hand lower and softer than the right.' },
+  ] },
+  'p2.lead': { type: 'piano', title: 'Platform Song', piece: 'platformSong', skill: 'reading', minutes: 4, core: true,
+    howto: 'An original 8-bar song in G. Learn the melody, then add left-hand fifths, then try your own left-hand pattern (like the pop groove).' },
+  'p2.echo': { type: 'echo', title: 'Longer phrases by ear', skill: 'ear', minutes: 2.5, core: true, count: 5, start: 4 },
+  'p2.arrange': { type: 'improv', title: 'Arrange it your way', skill: 'theory', minutes: 3, band: chart('G:4 D:4 Em:4 C:4 G:4 D:4 C:4 G:4'), bandStyle: 'pop', bpm: 96,
+    howto: 'Play Platform Song with the band, but make the accompaniment yours: broken chords, a 3 + 3 + 2 rhythm, or octaves. Record your favorite arrangement.' },
+  'p2.check': { type: 'checkpoint', title: 'Ticket inspection: Platform Song', piece: 'platformSong', skill: 'reading', minutes: 3 },
 };
 
 export const STATIONS = [
@@ -279,6 +440,34 @@ export const STATIONS = [
     story: 'Down a staircase, a trio is warming up. The bass player nods at the empty piano bench: "Grab a seat. ii–V–I in C."',
     passenger: 'The trio needs a pianist who can comp.',
     items: ['b1.lesson', 'b1.build', 'b1.shells', 'b1.charleston', 'b1.blues'], checkpoint: 'b1.check' },
+  { id: 'k2', line: 'conservatory', name: 'Prelude Platform', postcard: 'A quiet chapel organ loft at dawn',
+    story: 'A cantor at the next station hums a rippling pattern. "Bach wrote this for his students," he says. "Every bar is a chord. Every chord is a feeling."',
+    passenger: 'The cantor wants to hear the Prelude ripple like water.',
+    items: ['k2.lesson', 'k2.arp', 'k2.prelude', 'k2.ear'], checkpoint: 'k2.check' },
+  { id: 'k3', line: 'conservatory', name: 'Ballroom Return', postcard: 'A candlelit ballroom mid-waltz',
+    story: 'The dancing master is back: "Last time was only the first half! Tonight, the whole minuet, and the second half modulates."',
+    passenger: 'The dancers need the second half of the minuet.',
+    items: ['k3.lesson', 'k3.scale', 'k3.minuet'], checkpoint: 'k3.check' },
+  { id: 'k4', line: 'conservatory', name: 'Für Elise Falls', postcard: 'A misty waterfall under a stone bridge',
+    story: 'Mist rises from a waterfall beside the tracks. A pianist in the observation car plays the first two notes of a melody everyone knows, then stops. "Your turn."',
+    passenger: 'The pianist in the observation car wants to hear Für Elise.',
+    items: ['k4.lesson', 'k4.scale', 'k4.pedal', 'k4.elise'], checkpoint: 'k4.check' },
+  { id: 'b2', line: 'bluenote', name: 'Swing Street', postcard: 'A rainy street outside a late-night jazz club',
+    story: 'The trio moves to a bigger club. The drummer grins: "Tonight it\'s the blues. Swing it, and leave some space."',
+    passenger: 'The drummer wants to trade fours with you.',
+    items: ['b2.lesson', 'b2.tap', 'b2.shells', 'b2.comp', 'b2.riff', 'b2.jam'], checkpoint: 'b2.check' },
+  { id: 'b3', line: 'bluenote', name: 'Rootless Row', postcard: 'A rooftop jam under city lights',
+    story: 'On a rooftop jam session, the bassist says: "I\'ve got the roots covered. Give me those rich chords."',
+    passenger: 'The bassist wants rootless voicings to play against.',
+    items: ['b3.lesson', 'b3.build', 'b3.c', 'b3.f', 'b3.dorian'], checkpoint: 'b3.check' },
+  { id: 'p1', line: 'radio', name: 'Four-Chord Diner', postcard: 'A neon diner with a jukebox by the window',
+    story: 'The train stops for pie at an all-night diner. The jukebox is broken, and the waitress points at the upright in the corner. "Play us something we can sing to?"',
+    passenger: 'The diner crowd wants a pop groove.',
+    items: ['p1.lesson', 'p1.groove', 'p1.echo', 'p1.hook'], checkpoint: 'p1.check' },
+  { id: 'p2', line: 'radio', name: 'Lead Sheet Lane', postcard: 'A recording studio with a red "On Air" light',
+    story: 'A songwriter boards with a single page: a melody and some chord symbols. "That\'s all you get," she laughs. "Make it sound like a record."',
+    passenger: 'The songwriter needs her song brought to life.',
+    items: ['p2.lesson', 'p2.lead', 'p2.echo', 'p2.arrange'], checkpoint: 'p2.check' },
 ];
 
 PIECES.jingleDuet.duet.parts[0].notes = PIECES.jingle.notes;
@@ -288,6 +477,8 @@ PIECES.jingleDuet.phrases = PIECES.jingle.phrases;
 export const CHORD_SPELL = {
   C: [0, 4, 7], F: [5, 9, 0], G: [7, 11, 2], Am: [9, 0, 4], Dm: [2, 5, 9], Em: [4, 7, 11], D: [2, 6, 9],
   Dm7: [2, 5, 9, 0], G7: [7, 11, 2, 5], Cmaj7: [0, 4, 7, 11], Am7: [9, 0, 4, 7], D7: [2, 6, 9, 0], Fmaj7: [5, 9, 0, 4],
+  'Dm9 rootless': [5, 9, 0, 4], 'G13 rootless': [5, 9, 11, 4], 'Cmaj9 rootless': [4, 7, 11, 2],
+  'Gm9 rootless': [10, 2, 5, 9], 'C13 rootless': [10, 2, 4, 9], 'Fmaj9 rootless': [9, 0, 4, 7],
 };
 export const KEYS_NASHVILLE = {
   C: ['C', 'Dm', 'Em', 'F', 'G', 'Am'], G: ['G', 'Am', 'Bm', 'C', 'D', 'Em'], D: ['D', 'Em', 'F#m', 'G', 'A', 'Bm'],

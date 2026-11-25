@@ -1,9 +1,9 @@
 // Service worker: offline app shell. Player progress is NOT stored here (it lives in IndexedDB),
 // so updating the app never touches anyone's progress.
-const VERSION = 'nt-0.2.0';
+const VERSION = 'nt-0.3.0';
 const FILES = [
   './', 'index.html', 'styles.css', 'manifest.webmanifest',
-  'js/app.js', 'js/storage.js', 'js/audio.js', 'js/pitch.js', 'js/notation.js', 'js/content.js', 'js/engine.js', 'js/blocks.js', 'js/midi.js',
+  'js/app.js', 'js/storage.js', 'js/audio.js', 'js/pitch.js', 'js/notation.js', 'js/content.js', 'js/engine.js', 'js/blocks.js', 'js/midi.js', 'js/recorder.js',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png',
 ];
 

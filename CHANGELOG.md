@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.3.0 — 2026-11-25
+- Fix: Stop now silences playback, band and backing tracks instantly.
+- Record a take on any piece, play it back, compare it with the target ("Target, then me"), and save or share it as a recital.
+- Landscape: two-column practice screen (music left, controls right).
+- Seven new stations:
+  - **Conservatory: Prelude Platform** (Bach Prelude in C, bars 1–8; C major arpeggio)
+  - **Conservatory: Ballroom Return** (Minuet in G, bars 9–24, modulating to D; D major scale)
+  - **Conservatory: Für Elise Falls** (bars 1–8 on a grand staff; A harmonic minor; sustain-pedal lesson)
+  - **Blue Note: Swing Street** (swing feel, 12-bar blues shells, comping on 2 and 4, blues riff, trading fours)
+  - **Blue Note: Rootless Row** (rootless ii–V–I in C and F, D Dorian vamp)
+  - **New Radio Line: Four-Chord Diner** (pop groove with left-hand pattern, play-by-ear drill, write a hook)
+  - **New Radio Line: Lead Sheet Lane** (original lead-sheet song, longer play-by-ear phrases, arranging)
+- New drills: play-by-ear echo, swing rhythm tapping, rootless chord spelling.
+- Notation: sixteenth notes, 3/8 time, grand staff for shared-hand pieces, correct sharps/flats as written, wider bars for dense music.
+
 ## 0.2.0 — 2026-11-25 (Phase 2, delivery 2)
 - New lines, one starter station each (they open after Foundations):
   - **Carol Line, Jingle Bells Junction:** Jingle Bells solo; Jingle Bells and Ode to Joy duets with melody, easy bass, or chords parts.
