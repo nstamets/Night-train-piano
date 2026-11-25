@@ -20,6 +20,7 @@
   --key-white: #ffffff; --key-black: #1d1d24; --key-label: #333;
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html, body { margin: 0; background: var(--bg); color: var(--text); font: 17px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; -webkit-text-size-adjust: 100%; }
 body { min-height: 100vh; padding-bottom: env(safe-area-inset-bottom); }
 button { font: inherit; color: inherit; touch-action: manipulation; }
@@ -45,7 +46,8 @@ h1 { font-size: 1.5rem; margin: .3em 0; } h2 { font-size: 1.2rem; margin: .4em 0
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 48px; padding: 10px 16px; border-radius: 14px; border: 1px solid var(--line); background: var(--surface-2); cursor: pointer; font-weight: 600; }
 .btn:active { transform: scale(.97); } .btn:disabled { opacity: .45; }
 .btn.primary { background: var(--accent); color: var(--accent-text); border-color: transparent; }
-.btn.ghost { background: transparent; } .btn.sm { min-height: 36px; padding: 6px 10px; font-size: .9rem; }
+.btn.ghost { background: transparent; }
+.btn.ghost.primary { background: var(--accent); color: var(--accent-text); } .btn.sm { min-height: 36px; padding: 6px 10px; font-size: .9rem; }
 .btn.big { width: 100%; min-height: 58px; font-size: 1.1rem; margin: 8px 0; } .btn.huge { width: 100%; min-height: 72px; font-size: 1.25rem; border-radius: 18px; }
 .back { margin: 4px 0 8px; padding-left: 4px; }
 .row { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0; } .row > .btn { flex: 1 1 auto; }
@@ -126,9 +128,10 @@ h1 { font-size: 1.5rem; margin: .3em 0; } h2 { font-size: 1.2rem; margin: .4em 0
 /* Notation */
 .staffwrap { background: var(--key-white); border-radius: 14px; padding: 6px; margin: 10px 0; overflow-x: auto; }
 .staffwrap.small { max-width: 260px; margin: 10px auto; }
-.staff { width: 100%; height: auto; max-height: 240px; display: block; }
+.staff { width: 100%; height: auto; display: block; }
 .staff .sl { stroke: #333; stroke-width: 1; } .staff .bl { stroke: #333; stroke-width: 1.2; } .staff .bl.end { stroke-width: 3; }
-.staff .clef { fill: none; stroke: #222; stroke-width: 2.6; stroke-linecap: round; }
+.staff .clef { fill: none; stroke: #222; stroke-width: 2.6; stroke-linecap: round; } .staff .bassclef circle { fill: #222; stroke: none; }
+.staff .sym { font: bold 14px system-ui; fill: #1f5fd6; text-anchor: middle; }
 .staff .ts { font: bold 20px Georgia, serif; fill: #222; text-anchor: middle; }
 .staff .filled { fill: #1a1a1a; } .staff .hollow { fill: #fff; stroke: #1a1a1a; stroke-width: 2; }
 .staff .stem, .staff .flag { stroke: #1a1a1a; stroke-width: 1.6; fill: none; }
@@ -166,7 +169,16 @@ textarea.code { width: 100%; font: 12px/1.3 ui-monospace, Menlo, monospace; padd
 /* Landscape phone on a music stand: tighten vertical space */
 @media (orientation: landscape) and (max-height: 500px) {
   .wrap { max-width: 980px; padding-top: 6px; } .top { padding-top: 4px; padding-bottom: 4px; }
-  canvas.falling { height: 110px; } .staff { max-height: 30vh; } .kbd { max-height: 34vh; } .blk-h h2 { font-size: 1.1rem; margin: 0; } .blk-h p { display: none; } .tap-pad { height: 110px; } .btn.big { min-height: 48px; }
+  canvas.falling { height: 110px; } .staff { max-height: 60vh; } .kbd { max-height: 34vh; } .blk-h h2 { font-size: 1.1rem; margin: 0; } .blk-h p { display: none; } .tap-pad { height: 110px; } .btn.big { min-height: 48px; }
   .lesson-text.small { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+.tempo { display: block; margin: 8px 0; } .tempo input { display: block; width: 100%; height: 36px; accent-color: var(--accent); } .tempo small { display: block; }
+.vol { display: flex; align-items: center; gap: 10px; margin: 8px 0; font-size: .92rem; } .vol input { flex: 1; height: 36px; accent-color: var(--accent); }
+.bigcode { font: 800 2.2rem/1.1 ui-monospace, Menlo, monospace; letter-spacing: .18em; margin: 6px 0; }
+.bigcount { font-size: 1.5rem; min-height: 2em; padding: 10px; background: var(--surface); border-radius: 14px; }
+.stars { color: var(--accent); font-size: 1.6rem; letter-spacing: .1em; }
+.picked { text-align: center; font-size: 1.1rem; }
+.route .more { list-style: none; padding: 4px 0 0 56px; }
+.duetcard { margin-top: 18px; }

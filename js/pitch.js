@@ -22,7 +22,7 @@ export async function openMic() {
     });
     micSource = c.createMediaStreamSource(micStream);
     analyser = c.createAnalyser();
-    analyser.fftSize = 4096;
+    analyser.fftSize = 8192;
     analyser.smoothingTimeConstant = 0;
     micSource.connect(analyser);
   }
@@ -78,9 +78,33 @@ export function yin(buf, sampleRate, { minF = 60, maxF = 2100, threshold = 0.15,
 
 export const freqToMidi = f => 69 + 12 * Math.log2(f / 440);
 
+// Chroma: energy per pitch class from the spectrum (peaks only, 90-2400 Hz). Normalized to max 1.
+let fbuf = null;
+export function chroma(an, sampleRate, centsShift = 0) {
+  if (!fbuf || fbuf.length !== an.frequencyBinCount) fbuf = new Float32Array(an.frequencyBinCount);
+  an.getFloatFrequencyData(fbuf);
+  return chromaFromDb(fbuf, sampleRate, an.fftSize, centsShift);
+}
+export function chromaFromDb(db, sampleRate, fftSize, centsShift = 0) {
+  const c = new Float32Array(12);
+  const binHz = sampleRate / fftSize;
+  const lo = Math.ceil(90 / binHz), hi = Math.min(db.length - 2, Math.floor(2400 / binHz));
+  for (let k = lo; k <= hi; k++) {
+    if (db[k] < db[k - 1] || db[k] < db[k + 1] || db[k] < -90) continue;
+    const mag = Math.pow(10, db[k] / 20);
+    const m = freqToMidi(k * binHz) - centsShift / 100;
+    const pc = ((Math.round(m) % 12) + 12) % 12;
+    const f = k * binHz;
+    c[pc] += mag * mag * (f < 300 ? 1.3 : 1); // favor fundamentals a little
+  }
+  let mx = 0; for (let i = 0; i < 12; i++) mx = Math.max(mx, c[i]);
+  if (mx > 0) for (let i = 0; i < 12; i++) c[i] /= mx;
+  return Array.from(c);
+}
+
 // ---------- Live listener ----------
 // Emits note events {t (audio time), midi, conf}. Also reports level for a meter.
-export function listen({ noiseFloor = 0.004, onNote, onLevel, minMidi = 36, maxMidi = 96, centsOffset = 0 }) {
+export function listen({ noiseFloor = 0.004, onNote, onLevel, onOnset, minMidi = 36, maxMidi = 96, centsOffset = 0, wantChroma = false }) {
   const shift = centsOffset / 100;
   const c = audio();
   const sr = c.sampleRate;
@@ -106,7 +130,8 @@ export function listen({ noiseFloor = 0.004, onNote, onLevel, minMidi = 36, maxM
     if (isOnset) {
       if (pending) finish(pending);
       lastOnset = now;
-      pending = { t: now - hop / sr / 2, pitches: [], frames: 0 };
+      pending = { t: now - hop / sr / 2, pitches: [], frames: 0, chroma: null, cn: 0 };
+      onOnset && onOnset({ t: pending.t, rms: r });
     }
     let p = null;
     if (r > gate * 0.6) {
@@ -119,7 +144,12 @@ export function listen({ noiseFloor = 0.004, onNote, onLevel, minMidi = 36, maxM
     if (pending) {
       pending.frames++;
       if (pending.frames >= 2 && p !== null) pending.pitches.push(p);
-      if (pending.frames >= 9 || pending.pitches.length >= 5) { finish(pending); pending = null; }
+      if (wantChroma && pending.frames >= 3 && pending.frames <= 8) {
+        const ch = chroma(analyser, sr, centsOffset);
+        if (!pending.chroma) pending.chroma = ch; else ch.forEach((v, i) => { pending.chroma[i] += v; });
+        pending.cn++;
+      }
+      if (pending.frames >= 9 || (!wantChroma && pending.pitches.length >= 5)) { finish(pending); pending = null; }
     } else if (p !== null) {
       // soft new note without a clear attack: pitch changed and stayed changed
       const rm = Math.round(p);
@@ -131,16 +161,17 @@ export function listen({ noiseFloor = 0.004, onNote, onLevel, minMidi = 36, maxM
     setTimeout(frame, 20);
   }
   function finish(pd) {
-    if (!pd.pitches.length) return;
+    let ch = null;
+    if (pd.chroma) { const mx = Math.max(...pd.chroma) || 1; ch = pd.chroma.map(v => v / mx); }
+    if (!pd.pitches.length) { if (ch) emit(pd.t, null, 0, null, ch); return; }
     const s = pd.pitches.slice().sort((a, b) => a - b);
     const med = s[Math.floor(s.length / 2)];
     const close = s.filter(x => Math.abs(x - med) < 0.6).length / s.length;
-    emit(pd.t, Math.round(med), close, med + shift);
+    emit(pd.t, Math.round(med), close, med + shift, ch);
   }
-  function emit(t, midi, conf, raw = midi) {
-    lastEmitted = { midi, t };
-    stableMidi = midi; stableCount = 0;
-    onNote && onNote({ t, midi, conf, raw });
+  function emit(t, midi, conf, raw = midi, ch = null) {
+    if (midi !== null) { lastEmitted = { midi, t }; stableMidi = midi; stableCount = 0; }
+    onNote && onNote({ t, midi, conf, raw, chroma: ch });
   }
   frame();
   return { stop() { running = false; if (pending) finish(pending); } };
@@ -167,7 +198,7 @@ export async function measureNoise(ms = 1500) {
 export function judge(expected, heard) {
   const n = expected.length, m = heard.length;
   const INS = 0.6, DEL = 1;
-  const cost = (e, h) => (e.midi === h.midi ? 0 : (Math.abs(e.midi - h.midi) === 12 ? 0.15 : 1));
+  const cost = (e, h) => matchCost(e, h);
   const D = Array.from({ length: n + 1 }, () => new Float32Array(m + 1));
   const B = Array.from({ length: n + 1 }, () => new Uint8Array(m + 1)); // 1 diag 2 up(del) 3 left(ins)
   for (let i = 1; i <= n; i++) { D[i][0] = i * DEL; B[i][0] = 2; }
@@ -183,13 +214,15 @@ export function judge(expected, heard) {
     const k = B[i][j];
     if (k === 1) {
       const e = expected[i - 1], h = heard[j - 1];
-      per[i - 1] = { status: e.midi === h.midi || Math.abs(e.midi - h.midi) === 12 ? 'hit' : 'wrong', heard: h.midi, t: h.t };
+      const c0 = matchCost(e, h);
+      per[i - 1] = { status: c0 <= 0.2 ? 'hit' : c0 <= 0.5 ? 'partial' : 'wrong', heard: h.midi, t: h.t, missing: missingPcs(e, h) };
       i--; j--;
     } else if (k === 2) { i--; } else { extras++; j--; }
   }
   const hits = per.filter(p => p.status === 'hit').length;
+  const partial = per.filter(p => p.status === 'partial').length;
   const wrong = per.filter(p => p.status === 'wrong').length;
-  const pitchScore = n ? hits / n : 0;
+  const pitchScore = n ? (hits + partial * 0.5) / n : 0;
 
   // Rhythm: fit time = a + k*beat over notes we heard, then look at residuals (in beats).
   const pts = per.map((p, i) => ({ beat: expected[i].beat, t: p.t, i })).filter(p => p.t !== null);
@@ -220,7 +253,38 @@ export function judge(expected, heard) {
   else if (pitchScore >= 0.7 && rs >= 0.5) verdict = 'nearly';
   else verdict = 'notyet';
 
-  return { verdict, pitchScore, rhythmScore, tempo, hits, wrong, extras, per, timing, n, messages: feedback(expected, per, timing, rhythmScore, verdict) };
+  return { verdict, pitchScore, rhythmScore, tempo, hits, partial, wrong, extras, per, timing, n, messages: feedback(expected, per, timing, rhythmScore, verdict) };
+}
+
+const pcOf = m => ((m % 12) + 12) % 12;
+// heard can carry: midi (single pitch), pcs (from MIDI keyboard, exact), chroma (from mic spectrum)
+function presentPcs(h) {
+  if (h.pcs) return new Set(h.pcs);
+  const out = new Set();
+  if (h.chroma) h.chroma.forEach((v, i) => { if (v >= 0.28) out.add(i); });
+  if (h.midi !== null && h.midi !== undefined) out.add(pcOf(h.midi));
+  return out;
+}
+function missingPcs(e, h) {
+  if (!Array.isArray(e.midi)) return [];
+  const have = presentPcs(h);
+  return [...new Set(e.midi.map(pcOf))].filter(pc => !have.has(pc));
+}
+export function matchCost(e, h) {
+  if (Array.isArray(e.midi)) {
+    const need = [...new Set(e.midi.map(pcOf))];
+    const miss = missingPcs(e, h).length;
+    if (!h.pcs && !h.chroma && (h.midi === null || h.midi === undefined)) return 1;
+    if (miss === 0) return 0;
+    return miss === 1 && need.length >= 2 ? 0.5 : 1;
+  }
+  if (h.midi === null || h.midi === undefined) {
+    if (h.pcs) return h.pcs.includes(pcOf(e.midi)) ? 0.15 : 1;
+    if (h.chroma) { const mx = h.chroma.indexOf(Math.max(...h.chroma)); return mx === pcOf(e.midi) ? 0.15 : 1; }
+    return 1;
+  }
+  if (e.midi === h.midi) return 0;
+  return Math.abs(e.midi - h.midi) === 12 ? 0.15 : 1;
 }
 
 const NAMES = ['C', 'C♯', 'D', 'E♭', 'E', 'F', 'F♯', 'G', 'A♭', 'A', 'B♭', 'B'];
@@ -235,9 +299,15 @@ function feedback(expected, per, timing, rhythmScore, verdict) {
   const wrongs = per.map((p, i) => ({ ...p, i })).filter(p => p.status === 'wrong');
   const missed = per.map((p, i) => ({ ...p, i })).filter(p => p.status === 'missed');
   const hits = per.filter(p => p.status === 'hit').length;
-  msgs.push(`Notes: ${hits} of ${per.length} right.`);
-  wrongs.slice(0, 2).forEach(w => msgs.push(`Note ${w.i + 1} should be ${noteName(expected[w.i].midi)}. I heard ${noteName(w.heard)}.`));
-  if (missed.length && missed.length <= 2) missed.forEach(w => msgs.push(`I didn't hear note ${w.i + 1} (${noteName(expected[w.i].midi)}).`));
+  msgs.push(`${expected.some(e => Array.isArray(e.midi)) ? 'Chords' : 'Notes'}: ${hits} of ${per.length} right.`);
+  const isChord = i => Array.isArray(expected[i].midi);
+  const label = i => isChord(i) ? `Chord ${i + 1}${expected[i].sym ? ' (' + expected[i].sym + ')' : ''}` : `Note ${i + 1}`;
+  wrongs.slice(0, 2).forEach(w => msgs.push(isChord(w.i)
+    ? `${label(w.i)}: I didn't hear ${w.missing.map(noteName).join(', ')}.`
+    : `Note ${w.i + 1} should be ${noteName(expected[w.i].midi)}.${w.heard !== null && w.heard !== undefined ? ` I heard ${noteName(w.heard)}.` : ''}`));
+  per.map((p, i) => ({ ...p, i })).filter(p => p.status === 'partial').slice(0, 2)
+    .forEach(w => msgs.push(`${label(w.i)}: nearly. ${w.missing.length ? `${w.missing.map(noteName).join(', ')} was quiet or missing.` : ''}`));
+  if (missed.length && missed.length <= 2) missed.forEach(w => msgs.push(`I didn't hear ${label(w.i).toLowerCase()}${isChord(w.i) ? '' : ` (${noteName(expected[w.i].midi)})`}.`));
   else if (missed.length > 2) msgs.push(`I missed ${missed.length} notes. Play each one clearly, a little louder.`);
   if (rhythmScore !== null) {
     if (rhythmScore >= 0.85) msgs.push('Rhythm: nice and steady.');

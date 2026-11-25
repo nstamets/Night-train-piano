@@ -2,9 +2,10 @@
 import * as store from './storage.js';
 import { THEMES, LINES, STATIONS, ITEMS, PIECES, READING_LEVELS, parse } from './content.js';
 import { buildSession, stationStatus, stationProgress, currentStation, passStation, stationReady, sessionsThisWeek, addSkill, skillLevel, recordRating } from './engine.js';
-import { mountBlock } from './blocks.js';
-import { renderStaff, renderKeyboard, bindKeyboard, letterOf } from './notation.js';
-import { unlockAudio, playNote, click, audio } from './audio.js';
+import { mountBlock, pieceScore, judgedNotes, pieceView } from './blocks.js';
+import { initMIDI, midiConnected, midiSupported, listenMIDI, midiName } from './midi.js';
+import { renderStaff, renderScore, renderKeyboard, bindKeyboard, letterOf } from './notation.js';
+import { unlockAudio, playNote, click, audio, setBackingVolume } from './audio.js';
 import { micSupported, openMic, closeMic, listen, measureNoise, judge, noteName } from './pitch.js';
 
 const app = document.getElementById('app');
@@ -56,7 +57,7 @@ function go(view, arg) {
   cleanup();
   S.view = view;
   window.scrollTo(0, 0);
-  const views = { players: viewPlayers, onboard: viewOnboard, home: viewHome, station: viewStation, session: viewSession, item: viewItem, backup: viewBackup, settings: viewSettings, summary: viewSummary, restore: viewRestore };
+  const views = { duet: viewDuet, players: viewPlayers, onboard: viewOnboard, home: viewHome, station: viewStation, session: viewSession, item: viewItem, backup: viewBackup, settings: viewSettings, summary: viewSummary, restore: viewRestore };
   (views[view] || viewPlayers)(arg);
 }
 
@@ -77,7 +78,7 @@ async function selectPlayer(id) {
   const p = await store.loadPlayer(id);
   if (!p) { toast('Could not load that player. Try restoring a backup.'); return; }
   S.player = p; S.meta.lastPlayer = id; await store.saveMeta(S.meta);
-  setTheme(p.theme);
+  setTheme(p.theme); setBackingVolume(p.backingVol ?? 1);
   go(p.onboarded ? 'home' : 'onboard');
 }
 
@@ -152,6 +153,7 @@ function viewOnboard() {
       <button class="btn primary big" data-next>Next</button>`;
   if (step === 'lines') body = `<h2>Where do you want to go?</h2><p class="muted">Pick any. Everyone starts on the Foundations Local, and you can change this later.</p>
       <div class="lines">${LINES.map(l => `<button class="line ${p.lines.includes(l.id) ? 'on' : ''}" data-line="${l.id}" ${l.id === 'foundations' ? 'disabled' : ''} aria-pressed="${p.lines.includes(l.id)}"><strong>${l.name}</strong><span>${l.who}</span></button>`).join('')}</div>
+      ${mainLinePicker(p)}
       <label class="field">Dream goal (optional)<input type="text" data-goals maxlength="120" placeholder="e.g. play Silent Night for the family" value="${esc(p.goals)}"></label>
       <button class="btn primary big" data-next>Next</button>`;
   if (step === 'rhythm') body = `<h2>Your practice rhythm</h2>
@@ -191,13 +193,14 @@ function viewOnboard() {
         <button class="btn primary big" data-start>All aboard!</button>`}`;
   }
   app.innerHTML = `<main class="wrap ob">${body}<div class="dots" aria-hidden="true">${steps.map((s, i) => `<i class="${i === ob.step ? 'on' : ''}"></i>`).join('')}</div></main>`;
-  const finish = async () => { p.onboarded = true; S.ob = null; await save(); syncMeta(); go('home'); };
+  const finish = async () => { p.onboarded = true; const retake = ob.retake; S.ob = null; await save(); syncMeta(); if (retake) toast('Placement updated.'); go('home'); };
   app.onclick = async e => {
     const t = e.target;
     if (t.closest('[data-next]')) { await save(); next(); }
     const th = t.closest('[data-theme]'); if (th) { p.theme = th.dataset.theme; setTheme(p.theme); viewOnboard(); }
     const ln = t.closest('[data-line]'); if (ln) { const id = ln.dataset.line; p.lines = p.lines.includes(id) ? p.lines.filter(x => x !== id) : [...p.lines, id]; viewOnboard(); }
     const mn = t.closest('[data-min]'); if (mn) { p.sessionMinutes = +mn.dataset.min; viewOnboard(); }
+    const ml = t.closest('[data-main]'); if (ml) { p.mainLine = ml.dataset.main; viewOnboard(); }
     const pl = t.closest('[data-played]'); if (pl) { ob.played = pl.dataset.played; viewOnboard(); }
     const rd = t.closest('[data-reads]'); if (rd) { ob.reads = rd.dataset.reads; viewOnboard(); }
     const lt = t.closest('[data-letter]'); if (lt) { if (lt.dataset.letter === letterOf(ob.rq[ob.ri])) ob.right++; ob.ri++; viewOnboard(); }
@@ -213,6 +216,13 @@ function viewOnboard() {
   const gi = $('[data-goals]'); if (gi) gi.oninput = () => { p.goals = gi.value; };
   const wk = $('[data-weekly]'); if (wk) wk.oninput = () => { p.weeklyGoal = +wk.value; $('[data-wg]').textContent = wk.value; };
   S.cleanup.push(() => { app.onclick = null; });
+}
+function mainLinePicker(p) {
+  const opts = LINES.filter(l => l.id !== 'foundations' && p.lines.includes(l.id));
+  if (opts.length < 2) { p.mainLine = opts[0] ? opts[0].id : null; return ''; }
+  if (!opts.some(l => l.id === p.mainLine)) p.mainLine = opts[0].id;
+  return `<p><strong>★ Main line</strong> <span class="muted small">gets most of your practice time. The others get a little each week.</span></p>
+    <div class="opts">${opts.map(l => `<button class="opt ${p.mainLine === l.id ? 'on' : ''}" data-main="${l.id}">${l.name}</button>`).join('')}</div>`;
 }
 function syncMeta() {
   const m = S.meta.players.find(x => x.id === S.player.id);
@@ -237,6 +247,7 @@ function viewHome() {
       <p class="story-sm">${esc(st.passenger)}</p>
       <div class="bar" role="progressbar" aria-valuenow="${prog}" aria-valuemin="0" aria-valuemax="100"><span style="width:${prog}%"></span></div>
       <p class="muted small">${stStatus === 'ready' ? '🎫 Ready for ticket inspection!' : `${prog}% of the way there`}</p>
+      <button class="btn ${stStatus === 'ready' ? 'primary' : 'ghost'} sm" data-testout="${st.id}">${stStatus === 'ready' ? '🎫 Take the ticket inspection' : '⏩ Already know this? Test out'}</button>
     </section>` : `<section class="card station-card"><h2>End of the line… for now!</h2><p>You've finished every station in this version. New lines are being laid for the next update. Keep reviewing to stay sharp.</p></section>`}
     <section class="start">
       <div class="seg" role="group" aria-label="Session length">${[10, 15, 25].map(m => `<button class="${p.sessionMinutes === m ? 'on' : ''}" data-min="${m}">${m} min</button>`).join('')}</div>
@@ -244,14 +255,9 @@ function viewHome() {
     </section>
     <section class="card week"><div><strong>This week</strong> <span class="muted">${wk} of ${goal} sessions</span></div><div class="ring" aria-hidden="true">${ring}</div>
       <p class="muted small">${wk >= goal ? 'Weekly goal reached! Anything more is a bonus.' : 'Any days you like. No streak to break.'}</p></section>
-    <h2 class="sec">Foundations Local</h2>
-    <ol class="route">${STATIONS.filter(s => s.line === 'foundations').map(s => {
-      const ss = stationStatus(p, s); const rec = p.stations[s.id] || {};
-      const icon = ss === 'passed' ? (rec.grade === 'gold' ? '🥇' : '✓') : ss === 'placed' ? '⏩' : ss === 'locked' ? '🔒' : ss === 'ready' ? '🎫' : '🚉';
-      const label = { passed: rec.grade === 'gold' ? 'Gold stamp' : 'Passed', placed: 'Express pass', locked: 'Locked', ready: 'Inspection ready', open: 'Current stop' }[ss];
-      return `<li><button class="stop s-${ss}" data-nav="station" data-arg="${s.id}" ${ss === 'locked' ? 'disabled' : ''}><span class="ic" aria-hidden="true">${icon}</span><span><strong>${esc(s.name)}</strong><small>${label}</small></span></button></li>`;
-    }).join('')}</ol>
-    ${myLines.filter(l => !l.ready).length ? `<h2 class="sec">Your other lines</h2>${myLines.filter(l => !l.ready).map(l => `<div class="card dim"><strong>${l.name}</strong><p class="muted small">Track being laid. Arrives in an upcoming update.</p></div>`).join('')}` : ''}
+    ${routeHtml(p)}
+    <section class="card duetcard"><strong>🎹 Family duet</strong><p class="muted small">Two players, one piano, two phones. Or play a duet with the virtual partner anytime from the Carol Line.</p>
+      <button class="btn" data-nav="duet">Start a family duet</button></section>
     <h2 class="sec">Skill map</h2>
     <section class="card skills">${['technique', 'reading', 'rhythm', 'theory', 'ear'].map(k => { const lv = skillLevel(p.skills[k] || 0); return `<div class="sk"><span>${k[0].toUpperCase() + k.slice(1)}</span><div class="bar"><span style="width:${lv * 10}%"></span></div><span class="lv">Lv ${lv}</span></div>`; }).join('')}
       <div class="cando"><div><strong>✓ Can do</strong><p class="small">${canDo.length ? canDo.map(esc).join(', ') : 'Your first wins will show here.'}</p></div>
@@ -263,6 +269,23 @@ function viewHome() {
   </main>`;
   app.querySelectorAll('[data-min]').forEach(b => b.onclick = async () => { p.sessionMinutes = +b.dataset.min; await save(); viewHome(); });
   $('[data-startsession]').onclick = () => { unlockAudio(); startSession(); };
+  const to = $('[data-testout]'); if (to) to.onclick = () => { unlockAudio(); const sx = STATIONS.find(x => x.id === to.dataset.testout); go('item', { id: sx.checkpoint, station: sx.id }); };
+}
+
+function routeHtml(p) {
+  const lines = LINES.filter(l => l.id === 'foundations' || p.lines.includes(l.id));
+  const order = ['foundations', p.mainLine, ...lines.map(l => l.id)].filter((x, i, a) => x && a.indexOf(x) === i && lines.some(l => l.id === x));
+  return order.map(id => {
+    const l = LINES.find(x => x.id === id);
+    const sts = STATIONS.filter(x => x.line === id);
+    return `<h2 class="sec">${esc(l.name)}${p.mainLine === id ? ' ★' : ''}</h2>
+    <ol class="route">${sts.map(st2 => {
+      const ss = stationStatus(p, st2); const rec = p.stations[st2.id] || {};
+      const icon = ss === 'passed' ? (rec.grade === 'gold' ? '🥇' : '✓') : ss === 'placed' ? '⏩' : ss === 'locked' ? '🔒' : ss === 'ready' ? '🎫' : '🚉';
+      const label = { passed: rec.grade === 'gold' ? 'Gold stamp' : 'Passed', placed: 'Express pass', locked: id !== 'foundations' && STATIONS.filter(x => x.line === id).indexOf(st2) === 0 ? 'Opens after Foundations' : 'Locked', ready: 'Inspection ready', open: 'Current stop' }[ss];
+      return `<li><button class="stop s-${ss}" data-nav="station" data-arg="${st2.id}" ${ss === 'locked' ? 'disabled' : ''}><span class="ic" aria-hidden="true">${icon}</span><span><strong>${esc(st2.name)}</strong><small>${label}</small></span></button></li>`;
+    }).join('')}<li class="more muted small">More stations being built…</li></ol>`;
+  }).join('');
 }
 
 // ---------- Station detail (self-chosen practice) ----------
@@ -276,7 +299,7 @@ function viewStation(id) {
     <ul class="items">${st.items.map(iid => { const it = ITEMS[iid]; const s = p.items[iid];
       const tag = !s ? 'New' : s.last === 'clean' ? '✓ Clean' : s.last === 'nearly' ? '≈ Nearly' : s.last === 'notyet' ? '↻ Not yet' : 'Done';
       return `<li><button class="item" data-item="${iid}"><span>${esc(it.title)}</span><small>${tag}</small></button></li>`; }).join('')}</ul>
-    ${ss === 'ready' || ss === 'passed' || ss === 'placed' ? `<button class="btn primary big" data-item="${st.checkpoint}">🎫 ${ss === 'ready' ? 'Ticket inspection' : 'Retake inspection'}</button>` : `<p class="muted small center">Practice the starred work a couple of times to unlock the ticket inspection.</p>`}
+    ${ss === 'open' ? `<p class="muted small center">Practice these until each is clean or nearly, and the ticket inspection unlocks. Already know this material?</p><button class="btn big" data-item="${st.checkpoint}">⏩ Test out: take the inspection now</button>` : `<button class="btn primary big" data-item="${st.checkpoint}">🎫 ${ss === 'ready' ? 'Ticket inspection' : 'Retake inspection'}</button>`}
   </main>`;
   app.querySelectorAll('[data-item]').forEach(b => b.onclick = () => { unlockAudio(); go('item', { id: b.dataset.item, station: st.id }); });
 }
@@ -430,6 +453,9 @@ async function handleCheckpoint(res, it, stationId, inSession = false) {
 // ---------- Mic check (inspection / quick listen / audition) ----------
 function openMicCheck({ pieceId, onResult, quick = false, audition = false }) {
   const p = S.player; const piece = PIECES[pieceId];
+  const target = judgedNotes(piece);
+  const chords = target.some(n => Array.isArray(n.midi));
+  const viaMidi = midiConnected();
   const ov = document.createElement('div'); ov.className = 'overlay';
   ov.innerHTML = '<div class="sheet mic"></div>'; document.body.appendChild(ov);
   const sh = ov.querySelector('.sheet');
@@ -442,7 +468,8 @@ function openMicCheck({ pieceId, onResult, quick = false, audition = false }) {
   const cancelBtn = '<button class="btn ghost" data-cancel>Cancel</button>';
   sh.onclick = e => { if (e.target.closest('[data-cancel]')) close(null); };
 
-  if (!micSupported()) { sh.innerHTML = `<h2>No microphone here</h2><p>This browser can't use the microphone. Use a paper ticket for now, or open Night Train in Safari/Chrome over HTTPS.</p>${cancelBtn}`; return; }
+  if (viaMidi) { setTimeout(() => ready(), 0); }
+  else if (!micSupported()) { sh.innerHTML = `<h2>No microphone here</h2><p>This browser can't use the microphone. Use a paper ticket for now, or open Night Train in Safari/Chrome over HTTPS.</p>${cancelBtn}`; return; }
 
   const askMic = async () => {
     sh.innerHTML = `<h2>${audition ? 'Quick audition' : quick ? 'Quick listen' : 'Ticket inspection'}</h2><p>Night Train needs to hear your piano. The sound stays on this phone and is never recorded or sent anywhere.</p><button class="btn primary big" data-allow>Allow microphone</button>${cancelBtn}`;
@@ -485,8 +512,8 @@ function openMicCheck({ pieceId, onResult, quick = false, audition = false }) {
   const ready = () => {
     const bpm = Math.round(piece.bpm * 0.8);
     sh.innerHTML = `<h2>${audition ? 'Audition' : quick ? 'Quick listen' : 'Ticket inspection'}: ${esc(piece.title)}</h2>
-      <div class="staffwrap">${renderStaff(piece.notes, { letters: (p.readingLevel ?? 0) <= 2, barsPerLine: 2 })}</div>
-      <p>Tap Start. After 4 clicks, play. Any steady speed is fine.</p>
+      <div class="staffwrap">${pieceScore(piece, { letters: (p.readingLevel ?? 0) <= 2 && !chords, barsPerLine: 2 })}</div>
+      <p>${viaMidi ? `🎹 Listening to your keyboard (${esc(midiName())}). ` : ''}Tap Start. After ${(piece.beatsPerBar || 4)} clicks, play${piece.lh ? ' the right hand' : ''}. Any steady speed is fine.${chords && !viaMidi ? ' Play each chord firmly, all notes together.' : ''}</p>
       <div class="meter" aria-hidden="true"><span></span></div><p class="heard" aria-live="polite">&nbsp;</p>
       <div class="row"><button class="btn primary big" data-start>Start</button><button class="btn" data-done hidden>I'm done</button></div>${cancelBtn}`;
     sh.querySelector('[data-start]').onclick = () => run(bpm);
@@ -497,36 +524,39 @@ function openMicCheck({ pieceId, onResult, quick = false, audition = false }) {
     const doneBtn = sh.querySelector('[data-done]'); doneBtn.hidden = false;
     const heardEl = sh.querySelector('.heard'); const meter = sh.querySelector('.meter span');
     const c = audio(); const spb = 60 / bpm; const t0 = c.currentTime + 0.2;
-    for (let k = 0; k < 4; k++) { click(t0 + k * spb, k === 0); timers.push(setTimeout(() => { heardEl.textContent = `Count-in: ${k + 1}`; }, (t0 + k * spb - c.currentTime) * 1000)); }
-    const musicStart = t0 + 4 * spb;
+    const bpb = piece.beatsPerBar || 4;
+    for (let k = 0; k < bpb; k++) { click(t0 + k * spb, k === 0); timers.push(setTimeout(() => { heardEl.textContent = `Count-in: ${k + 1}`; }, (t0 + k * spb - c.currentTime) * 1000)); }
+    const musicStart = t0 + bpb * spb;
     timers.push(setTimeout(() => { heardEl.textContent = 'Play now!'; }, (musicStart - c.currentTime) * 1000));
     const heard = []; let lastAt = 0;
     const cal = p.calibration || { noiseFloor: 0.004, centsOffset: 0 };
-    listener = listen({ noiseFloor: cal.noiseFloor, centsOffset: cal.centsOffset,
+    const onEv = ev => { if (ev.t < musicStart - 0.3) return; heard.push(ev); lastAt = Date.now(); heardEl.textContent = 'Heard: ' + heard.slice(-6).map(h => h.notes && h.notes.length > 1 ? h.notes.map(noteName).join('+') : h.midi !== null && h.midi !== undefined ? noteName(h.midi) : '♪').join(' '); };
+    if (viaMidi) listener = listenMIDI(onEv);
+    else listener = listen({ noiseFloor: cal.noiseFloor, centsOffset: cal.centsOffset, wantChroma: chords,
       onLevel: (r, gate) => { meter.style.width = Math.min(100, r / (gate * 6) * 100) + '%'; },
-      onNote: ev => { if (ev.t < musicStart - 0.3) return; heard.push(ev); lastAt = Date.now(); heardEl.textContent = 'Heard: ' + heard.slice(-6).map(h => noteName(h.midi)).join(' '); } });
-    const total = Math.max(...piece.notes.map(n => n.beat + n.dur));
+      onNote: onEv });
+    const total = Math.max(...target.map(n => n.beat + n.dur));
     const maxMs = ((musicStart - c.currentTime) + total * spb * 2.2 + 3) * 1000;
     const tStart = Date.now();
     const finish = () => {
       listener && listener.stop(); listener = null;
-      const r = judge(piece.notes, heard.map(h => ({ t: h.t, midi: h.midi })));
+      const r = judge(target, heard);
       showResult(r);
     };
     doneBtn.onclick = finish;
     const iv = setInterval(() => {
       if (closed) { clearInterval(iv); return; }
-      const enough = heard.length >= piece.notes.length && Date.now() - lastAt > 1500;
+      const enough = heard.length >= target.length && Date.now() - lastAt > 1500;
       if (enough || Date.now() - tStart > maxMs) { clearInterval(iv); finish(); }
     }, 200);
     timers.push(iv);
   };
 
   const showResult = (r) => {
-    const marks = {}; r.per.forEach((x, i) => { marks[i] = x.status === 'hit' ? 'hit' : x.status; });
+    const marks = {}; r.per.forEach((x, i) => { marks[i] = x.status; });
     const title = { clean: '✓ Clean!', nearly: '≈ Nearly!', notyet: '↻ Not yet', unclear: "🤔 I couldn't hear that clearly" }[r.verdict];
     sh.innerHTML = `<h2>${title}</h2>
-      ${r.verdict !== 'unclear' ? `<div class="staffwrap">${renderStaff(piece.notes, { marks, barsPerLine: 2 })}</div>` : ''}
+      ${r.verdict !== 'unclear' ? `<div class="staffwrap">${pieceScore(piece, { marks, barsPerLine: 2 })}</div>` : ''}
       <ul class="msgs">${r.messages.map(m => `<li>${esc(m)}</li>`).join('')}</ul>
       <div class="row"><button class="btn" data-retry>Try again</button>
       ${r.verdict === 'unclear' ? '<button class="btn" data-recal>Redo setup</button>' : '<button class="btn primary" data-accept>Continue</button>'}</div>${cancelBtn}`;
@@ -535,6 +565,171 @@ function openMicCheck({ pieceId, onResult, quick = false, audition = false }) {
     const ac = sh.querySelector('[data-accept]'); if (ac) ac.onclick = () => close(r);
   };
   askMic();
+}
+
+// ---------- Family duet (two phones, one piano, no server) ----------
+// The host's 6-character code carries the piece, both parts and the tempo. The host phone plays a loud
+// count-in; the partner phone hears those clicks and lines its clock up with them. Each phone judges only
+// its own player's notes (by pitch range), then the players swap 2-character result codes.
+const DUET_PIECES = ['jingleDuet', 'odeDuet'];
+const ALPH = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+function duetCode(pi, hp, pp, pct) {
+  const t = Math.round(pct * 100) - 40;
+  const body = ALPH[pi] + ALPH[hp] + ALPH[pp] + ALPH[Math.floor(t / 32)] + ALPH[t % 32];
+  const sum = [...body].reduce((a, ch) => a + ALPH.indexOf(ch), 0) % 32;
+  return body + ALPH[sum];
+}
+function readDuetCode(code) {
+  code = (code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (code.length !== 6) return null;
+  const v = [...code].map(ch => ALPH.indexOf(ch)); if (v.some(x => x < 0)) return null;
+  if (v.slice(0, 5).reduce((a, b) => a + b, 0) % 32 !== v[5]) return null;
+  if (!DUET_PIECES[v[0]]) return null;
+  return { pi: v[0], hp: v[1], pp: v[2], pct: (v[3] * 32 + v[4] + 40) / 100 };
+}
+const resultCode = (ps, rs) => ALPH[Math.min(31, Math.round(ps * 31))] + ALPH[Math.min(31, Math.round((rs ?? 1) * 31))];
+const readResult = c => { c = (c || '').toUpperCase().trim(); if (c.length !== 2) return null; const a = ALPH.indexOf(c[0]), b = ALPH.indexOf(c[1]); return a < 0 || b < 0 ? null : { ps: a / 31, rs: b / 31 }; };
+
+function viewDuet() {
+  const p = S.player;
+  const st = S.duet || (S.duet = { pi: 0, hp: 0, pp: 1, pct: 0.8, role: null });
+  const piece = PIECES[DUET_PIECES[st.pi]]; const parts = piece.duet.parts;
+  let body = '';
+  if (!st.role) {
+    body = `<p class="lesson-text">One phone <strong>hosts</strong> and shows a code. The other phone <strong>joins</strong> with that code. Put both phones on the music stand.</p>
+      <div class="row"><button class="btn primary big" data-host>Host a duet</button><button class="btn big" data-join>Join with a code</button></div>`;
+  } else if (st.role === 'host' && !st.ready) {
+    body = `<h2>Choose the duet</h2>
+      <div class="seg">${DUET_PIECES.map((id, i) => `<button class="${st.pi === i ? 'on' : ''}" data-pi="${i}">${esc(PIECES[id].title.replace(' duet', ''))}</button>`).join('')}</div>
+      <p><strong>${esc(p.name)} plays:</strong></p><div class="opts">${parts.map((x, i) => `<button class="opt ${st.hp === i ? 'on' : ''}" data-hp="${i}">${esc(x.name)}</button>`).join('')}</div>
+      <p><strong>Partner plays:</strong></p><div class="opts">${parts.map((x, i) => i === st.hp || (st.hp !== 0 && i !== 0) ? '' : `<button class="opt ${st.pp === i ? 'on' : ''}" data-pp="${i}">${esc(x.name)}</button>`).join('')}</div>
+      <label class="tempo">Tempo <strong data-tv>${Math.round(st.pct * 100)}%</strong><input type="range" min="40" max="120" step="5" value="${Math.round(st.pct * 100)}" data-dt></label>
+      <button class="btn primary big" data-ready>Show the code</button>`;
+  } else if (st.role === 'join' && !st.ready) {
+    body = `<h2>Join a duet</h2><label class="field">Code from the host phone<input type="text" data-code maxlength="7" autocapitalize="characters" placeholder="e.g. AB3KQX"></label>
+      <button class="btn primary big" data-joincode>Join</button><p class="fb" aria-live="polite"></p>`;
+  } else {
+    const mine = st.role === 'host' ? st.hp : st.pp; const theirs = st.role === 'host' ? st.pp : st.hp;
+    const v = pieceView(piece, parts[mine].id);
+    body = `${st.role === 'host' ? `<div class="card center"><p class="muted small">Partner: tap "Join with a code" and enter</p><p class="bigcode">${duetCode(st.pi, st.hp, st.pp, st.pct)}</p></div>` : ''}
+      <p><strong>${esc(piece.title)}</strong> · you play <strong>${esc(parts[mine].name)}</strong>, partner plays ${esc(parts[theirs].name)} · ${Math.round(piece.bpm * st.pct)} bpm</p>
+      <div class="staffwrap">${renderScore(v.staves, { beatsPerBar: v.beatsPerBar, barsPerLine: 2, letters: !v.events.some(n => Array.isArray(n.midi)) })}</div>
+      <div class="count bigcount" aria-live="polite">${st.role === 'host' ? 'When you are both ready, tap Start.' : 'Tap "Listen for count-in", then wait for the host.'}</div>
+      <div class="row">${st.role === 'host' ? '<button class="btn primary big" data-go>Start (loud count-in)</button>' : '<button class="btn primary big" data-listenci>Listen for count-in</button>'}</div>
+      <label class="tog"><input type="checkbox" data-nomic ${st.nomic ? 'checked' : ''}> Play without the microphone (rate yourselves)</label>
+      <div class="duetres"></div>`;
+  }
+  app.innerHTML = `${topbar('Family duet')}<main class="wrap"><button class="btn ghost back" data-nav="home">‹ Train</button>${body}</main>`;
+  const rerender = () => viewDuet();
+  app.onclick = async e => {
+    const t = e.target;
+    if (t.closest('[data-host]')) { st.role = 'host'; rerender(); }
+    if (t.closest('[data-join]')) { st.role = 'join'; rerender(); }
+    const pi = t.closest('[data-pi]'); if (pi) { st.pi = +pi.dataset.pi; rerender(); }
+    const hp = t.closest('[data-hp]'); if (hp) { st.hp = +hp.dataset.hp; st.pp = st.hp === 0 ? 1 : 0; rerender(); }
+    const pp = t.closest('[data-pp]'); if (pp) { st.pp = +pp.dataset.pp; rerender(); }
+    if (t.closest('[data-ready]')) { st.ready = true; rerender(); }
+    if (t.closest('[data-joincode]')) {
+      const d = readDuetCode($('[data-code]').value);
+      if (!d) { $('.fb').textContent = 'That code does not look right. Check the 6 characters on the host phone.'; return; }
+      Object.assign(st, d, { ready: true }); rerender();
+    }
+    if (t.closest('[data-go]')) { await unlockAudio(); runDuet(true); }
+    if (t.closest('[data-listenci]')) { await unlockAudio(); runDuet(false); }
+  };
+  app.onchange = e => {
+    if (e.target.matches('[data-nomic]')) st.nomic = e.target.checked;
+    if (e.target.matches('[data-dt]')) st.pct = +e.target.value / 100;
+  };
+  app.oninput = e => { if (e.target.matches('[data-dt]')) $('[data-tv]').textContent = e.target.value + '%'; };
+  S.cleanup.push(() => { app.onclick = null; app.onchange = null; app.oninput = null; duetStop(); });
+}
+
+let duetCtl = { listener: null, timers: [] };
+function duetStop() { duetCtl.listener && duetCtl.listener.stop(); duetCtl.timers.forEach(clearTimeout); duetCtl = { listener: null, timers: [] }; closeMic(); }
+
+async function runDuet(isHost) {
+  duetStop();
+  const p = S.player; const st = S.duet;
+  const piece = PIECES[DUET_PIECES[st.pi]]; const parts = piece.duet.parts;
+  const mine = parts[isHost ? st.hp : st.pp];
+  const target = mine.notes;
+  const spb = 60 / (piece.bpm * st.pct); const bpb = piece.beatsPerBar || 4;
+  const box = $('.bigcount'); const res = $('.duetres');
+  const c = audio();
+  const total = Math.max(...target.map(n => n.beat + n.dur));
+  const chords = target.some(n => Array.isArray(n.midi));
+  const pitches = target.flatMap(n => Array.isArray(n.midi) ? n.midi : [n.midi]);
+  const lo = Math.min(...pitches) - 3, hi = Math.max(...pitches) + 3;
+  let musicStart = null; const heard = [];
+  const useMic = !st.nomic && micSupported();
+  if (useMic) { try { await openMic(); } catch { toast('Microphone blocked. Playing without it.'); st.nomic = true; } }
+  const cal = p.calibration || { noiseFloor: 0.004, centsOffset: 0 };
+  const beginPlay = () => {
+    box.textContent = 'Play!';
+    for (let b = 0; b < total; b++) duetCtl.timers.push(setTimeout(() => { box.textContent = `Bar ${Math.floor(b / bpb) + 1} · beat ${(b % bpb) + 1}`; }, (musicStart + b * spb - c.currentTime) * 1000));
+    duetCtl.timers.push(setTimeout(finish, (musicStart + total * spb + 1.5 - c.currentTime) * 1000));
+  };
+  const onNote = ev => {
+    if (musicStart === null || ev.t < musicStart - 0.3) return;
+    if (ev.midi !== null && ev.midi !== undefined && (ev.midi < lo || ev.midi > hi) && !chords) return; // the other player's notes
+    heard.push(ev);
+  };
+  if (isHost) {
+    const t0 = c.currentTime + 0.3;
+    for (let k = 0; k < bpb; k++) { click(t0 + k * spb, k === 0, true); duetCtl.timers.push(setTimeout(() => { box.textContent = `Count-in: ${k + 1}`; }, (t0 + k * spb - c.currentTime) * 1000)); }
+    musicStart = t0 + bpb * spb;
+    if (!st.nomic) duetCtl.listener = listen({ noiseFloor: cal.noiseFloor, centsOffset: cal.centsOffset, wantChroma: chords, onNote });
+    duetCtl.timers.push(setTimeout(beginPlay, (musicStart - c.currentTime) * 1000 - 30));
+  } else {
+    if (st.nomic) { box.textContent = 'No mic: start together when the host counts in. Tap here on beat 1.'; box.onclick = () => { musicStart = c.currentTime; box.onclick = null; beginPlay(); }; return; }
+    box.textContent = 'Listening for the count-in…';
+    const onsets = [];
+    duetCtl.listener = listen({ noiseFloor: cal.noiseFloor, centsOffset: cal.centsOffset, wantChroma: chords, onNote,
+      onOnset: o => {
+        if (musicStart !== null) return;
+        onsets.push(o.t);
+        // look for bpb clicks evenly spaced at the agreed tempo
+        const last = onsets.slice(-bpb);
+        if (last.length === bpb) {
+          const gaps = last.slice(1).map((x, i) => x - last[i]);
+          if (gaps.every(g => Math.abs(g - spb) < spb * 0.22)) { musicStart = last[bpb - 1] + spb; beginPlay(); }
+        }
+      } });
+    duetCtl.timers.push(setTimeout(() => { if (musicStart === null) box.textContent = "I didn't hear the count-in. Move closer to the host phone and try again."; }, 15000));
+  }
+  function finish() {
+    duetCtl.listener && duetCtl.listener.stop(); duetCtl.listener = null; closeMic();
+    box.textContent = 'Done!';
+    if (st.nomic) {
+      res.innerHTML = `<p>How did it go?</p><div class="rate"><button class="btn r-clean" data-dr="clean">✓ Together!</button><button class="btn r-nearly" data-dr="nearly">≈ Mostly</button><button class="btn r-notyet" data-dr="notyet">↻ Again</button></div>`;
+      res.onclick = ev => { const b = ev.target.closest('[data-dr]'); if (b) { duetReward(b.dataset.dr); res.innerHTML = '<p>Saved. Play it again anytime!</p>'; } };
+      return;
+    }
+    const r = judge(target, heard);
+    const mineCode = resultCode(r.pitchScore, r.rhythmScore);
+    res.innerHTML = `<h2>${{ clean: '✓ Clean!', nearly: '≈ Nearly!', notyet: '↻ Not yet', unclear: "🤔 Couldn't hear clearly" }[r.verdict]}</h2>
+      <ul class="msgs">${r.messages.map(m => `<li>${esc(m)}</li>`).join('')}</ul>
+      <div class="card center"><p class="muted small">Your result code (tell your partner):</p><p class="bigcode">${mineCode}</p>
+      <label class="field">Partner's result code<input type="text" maxlength="2" data-pr autocapitalize="characters"></label><button class="btn" data-combine>Combine</button><p class="combined" aria-live="polite"></p></div>
+      <button class="btn" data-again>Play again</button>`;
+    if (r.verdict !== 'unclear') duetReward(r.verdict);
+    res.onclick = ev => {
+      if (ev.target.closest('[data-again]')) { res.innerHTML = ''; runDuet(isHost); }
+      if (ev.target.closest('[data-combine]')) {
+        const o = readResult($('[data-pr]').value); if (!o) { $('.combined').textContent = 'Enter the 2-character code from the other phone.'; return; }
+        const both = (r.pitchScore + o.ps) / 2 * 0.6 + (((r.rhythmScore ?? 1) + o.rs) / 2) * 0.4;
+        const stars = both >= 0.9 ? 3 : both >= 0.7 ? 2 : both >= 0.4 ? 1 : 0;
+        $('.combined').innerHTML = `<span class="stars">${'★'.repeat(stars)}${'☆'.repeat(3 - stars)}</span> Duet score ${Math.round(both * 100)}%`;
+      }
+    };
+  }
+}
+async function duetReward(v) {
+  const p = S.player;
+  p.miles += v === 'clean' ? 20 : v === 'nearly' ? 14 : 8; addSkill(p, 'rhythm', 6);
+  p.duets = (p.duets || 0) + 1;
+  await save(); toast(`+${v === 'clean' ? 20 : v === 'nearly' ? 14 : 8} miles · duet #${p.duets}`);
 }
 
 // ---------- Backup ----------
@@ -586,7 +781,13 @@ function viewSettings() {
     <section class="card"><h2>Carriage theme</h2><div class="themes">${THEMES.map(t => `<button class="theme th-${t.id} ${p.theme === t.id ? 'on' : ''}" data-theme="${t.id}" aria-pressed="${p.theme === t.id}"><strong>${t.name}</strong><span>${t.desc}</span></button>`).join('')}</div></section>
     <section class="card"><label class="field">Sessions per week: <strong data-wg>${p.weeklyGoal}</strong><input type="range" min="1" max="7" value="${p.weeklyGoal}" data-weekly></label></section>
     <section class="card"><h2>Reading help</h2><div class="opts">${READING_LEVELS.map(l => `<button class="opt ${(p.readingLevel ?? 0) === l.id ? 'on' : ''}" data-rl="${l.id}"><strong>${l.name}</strong><br><small>${l.desc}</small></button>`).join('')}</div></section>
-    <section class="card"><h2>Lines</h2><div class="lines">${LINES.map(l => `<button class="line ${p.lines.includes(l.id) ? 'on' : ''}" data-line="${l.id}" ${l.id === 'foundations' ? 'disabled' : ''} aria-pressed="${p.lines.includes(l.id)}"><strong>${l.name}</strong><span>${l.who}</span></button>`).join('')}</div></section>
+    <section class="card"><h2>Lines</h2><div class="lines">${LINES.map(l => `<button class="line ${p.lines.includes(l.id) ? 'on' : ''}" data-line="${l.id}" ${l.id === 'foundations' ? 'disabled' : ''} aria-pressed="${p.lines.includes(l.id)}"><strong>${l.name}</strong><span>${l.who}</span></button>`).join('')}</div>${mainLinePicker(p)}</section>
+    <section class="card"><h2>Sound</h2><label class="vol">🔊 Backing volume <input type="range" min="0" max="200" step="10" value="${Math.round((p.backingVol ?? 1) * 100)}" data-bvol></label>
+      <button class="btn sm" data-testvol>▶ Test backing</button></section>
+    <section class="card"><h2>Keyboard (MIDI)</h2>${midiSupported()
+      ? `<p class="muted small">${midiConnected() ? `🎹 Connected: ${esc(midiName())}. Inspections and play-along tries are checked automatically.` : 'Plug the keyboard in with a USB cable, then tap Connect.'}</p><button class="btn" data-midi>Connect keyboard</button>`
+      : '<p class="muted small">Not available in this browser. MIDI works on the MacBook in Chrome or Edge with a USB cable (not on iPhone, iPad, or Safari). The microphone works everywhere.</p>'}</section>
+    <section class="card"><h2>Placement</h2><p class="muted small">Placed too low or too high? Retake the placement questions. Your progress is kept.</p><button class="btn" data-retake>Retake placement</button></section>
     <section class="card"><h2>Microphone</h2><p class="muted small">${p.calibration ? `Set up ${ago(p.calibration.at)}.` : 'Not set up yet. It will set up at your first ticket inspection.'}</p><button class="btn" data-recal>Redo listening setup</button></section>
     <section class="card danger"><h2>Remove player</h2><p class="muted small">This deletes ${esc(p.name)}'s progress from this device. Make a backup first.</p><button class="btn" data-del>Remove ${esc(p.name)}…</button></section>
   </main>`;
@@ -595,6 +796,11 @@ function viewSettings() {
   const wk = $('[data-weekly]'); wk.oninput = () => { $('[data-wg]').textContent = wk.value; }; wk.onchange = async () => { p.weeklyGoal = +wk.value; await save(); };
   app.querySelectorAll('[data-rl]').forEach(b => b.onclick = async () => { p.readingLevel = +b.dataset.rl; await save(); viewSettings(); });
   app.querySelectorAll('[data-line]').forEach(b => b.onclick = async () => { const id = b.dataset.line; p.lines = p.lines.includes(id) ? p.lines.filter(x => x !== id) : [...p.lines, id]; await save(); viewSettings(); });
+  app.querySelectorAll('[data-main]').forEach(b => b.onclick = async () => { p.mainLine = b.dataset.main; await save(); viewSettings(); });
+  const bv = $('[data-bvol]'); bv.oninput = () => { p.backingVol = +bv.value / 100; setBackingVolume(p.backingVol); }; bv.onchange = () => save();
+  $('[data-testvol]').onclick = async () => { await unlockAudio(); const { pad } = await import('./audio.js'); pad([48, 55, 60, 64], audio().currentTime + 0.05, 2.5); };
+  const mb = $('[data-midi]'); if (mb) mb.onclick = async () => { const ok = await initMIDI(); try { localStorage.setItem('nighttrain:midi', '1'); } catch { /* ignore */ } toast(ok ? `🎹 Connected: ${esc(midiName())}` : 'No keyboard found. Check the USB cable and that the keyboard is on.'); viewSettings(); };
+  $('[data-retake]').onclick = () => { S.ob = { step: 4, played: null, reads: null, readScore: null, retake: true }; go('onboard'); };
   $('[data-recal]').onclick = async () => { p.calibration = null; await save(); openMicCheck({ pieceId: 'cdeUpDown', quick: true, onResult: () => viewSettings() }); };
   $('[data-del]').onclick = async () => {
     const typed = prompt(`Type ${p.name} to remove this player from this device.`);
@@ -607,6 +813,7 @@ function viewSettings() {
 async function boot() {
   try {
     S.meta = await store.loadMeta();
+    try { if (localStorage.getItem('nighttrain:midi') === '1' && midiSupported()) initMIDI(); } catch { /* ignore */ }
     store.requestPersistence();
     // Heal the player list if a player record exists but meta was lost (belt and braces)
     if (S.meta.lastPlayer && S.meta.players.some(x => x.id === S.meta.lastPlayer)) await selectPlayer(S.meta.lastPlayer);

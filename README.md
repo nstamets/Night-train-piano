@@ -1,6 +1,6 @@
 # Night Train 🚂 — family piano app
 
-Version 0.1.0 (Phase 2, delivery 1). Static web app: no build step, no server, no accounts.
+Version 0.2.0 (Phase 2, delivery 2). Static web app: no build step, no server, no accounts.
 
 ## Put it on GitHub Pages
 
@@ -14,10 +14,10 @@ Version 0.1.0 (Phase 2, delivery 1). Static web app: no build step, no server, n
    README.md
    CHANGELOG.md
    js/app.js  js/audio.js  js/blocks.js  js/content.js
-   js/engine.js  js/notation.js  js/pitch.js  js/storage.js
+   js/engine.js  js/notation.js  js/pitch.js  js/storage.js  js/midi.js
    icons/icon-192.png  icons/icon-512.png  icons/apple-touch-icon.png
    ```
-   (Dragging the `js` and `icons` folders in keeps the structure.)
+   (Dragging the `js` and `icons` folders in keeps the structure. 18 files in total.)
 3. **Settings → Pages → Build and deployment → Source: Deploy from a branch → `main` / `/ (root)` → Save.**
 4. After about a minute, the app is at `https://<your-username>.github.io/night-train/`.
 5. On each iPhone: open that link in Safari → Share ⬆︎ → **Add to Home Screen** → open it from the Home Screen **before** creating players.
@@ -54,6 +54,10 @@ Version 0.1.0 (Phase 2, delivery 1). Static web app: no build step, no server, n
 | Self-assessment | Skill map with "Can do" and "Still shaky". Self-ratings are compared with mic results, with a gentle note if they drift |
 | Autonomy | Pick lines, theme, weekly goal and session length. Practice any item from the station screen |
 | No guilt | A weekly goal, not a streak: "Any days you like" |
+| Hands separate → together | Minuet: right hand / left hand / hands together switch. After two clean tries hands-separate, the app suggests together. A "Not yet" on hands together suggests going back to separate |
+| Chord charts vs. notation | Gospel and Blue Note show chord symbols and Nashville numbers above the staff. Number drills train reading charts; classical stays in full notation |
+| Playing with others | Virtual-partner duets, the family duet with a shared count-in, and a backing band on worship and jazz pieces |
+| Main line focus | Sessions follow the ★ main line, plus one new item from another chosen line (rotating) |
 
 ## Real-device test checklist (iPhone + upright)
 
@@ -74,8 +78,20 @@ Version 0.1.0 (Phase 2, delivery 1). Static web app: no build step, no server, n
 13. **Two players:** switch players. The session header always shows whose turn it is.
 14. **Offline:** turn on airplane mode and open the app. It should still work.
 
+## Delivery 2 tests
+
+15. **Chords by mic (Gospel → Chapel Hill → inspection):** play C – F – G – C firmly. Are they recognized? Then leave out one note on purpose: does it name the missing note?
+16. **Low shells (Blue Note inspection):** D+F, G+F, C+E in the low register. This is the hardest case for the mic. Tell me how often it hears them.
+17. **Band volume:** worship and swing backing. Is the slider range enough?
+18. **Family duet:** host on one phone, join on the other.
+    - Does the partner phone catch the count-in and show "Play!" on time?
+    - After playing, do both result codes combine?
+19. **Mady's keyboard (MacBook + Chrome + USB):** Settings → Keyboard → Connect.
+    - Play along on the Minuet. Each try should be rated automatically (🎹).
+    - Does the inspection use the keyboard instead of the mic?
+
 ## Limits in this version (honest)
 
-- The mic judges single notes in sequence. Chords and two hands come in later stations.
-- Only the Foundations Local (3 stations) exists. The Carol, Gospel, Conservatory and Blue Note lines are next.
-- No duets yet, no MIDI yet, no recording or playback yet.
+- The mic reliably judges single notes and firmly played chords. Two hands at once are judged on the right hand only. Low two-note shells are harder to hear.
+- In a family duet, both phones hear both players. Each phone separates its part by pitch range, so parts that overlap in range would confuse it (these arrangements keep the parts apart).
+- Each new line has 1–2 stations so far. More stations, recording/playback, and a pop track are next.

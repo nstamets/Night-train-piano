@@ -6,14 +6,33 @@ export function toMidi(name) {
   if (!m) throw new Error('bad note ' + name);
   return (+m[3] + 1) * 12 + PC[m[1]] + (m[2] === '#' ? 1 : m[2] === 'b' ? -1 : 0);
 }
-// "E4:1 E4:1 F4:1/3" => [{midi, beat, dur, finger}]  ('|' bar lines ignored, 'R:1' = rest)
+// Tokens: "E4:1/3" (note:beats/finger), "[C4,E4,G4]:4" (chord), "R:1" (rest), "...@Sym" (chord symbol above). "|" = bar line (ignored).
 export function parse(str) {
   const out = []; let beat = 0;
   str.split(/\s+/).filter(t => t && t !== '|').forEach(tok => {
-    const [note, rest] = tok.split(':');
-    const [dur, finger] = (rest || '1').split('/');
+    let sym; [tok, sym] = tok.split('@');
+    const ci = tok.lastIndexOf(':');
+    const note = ci >= 0 ? tok.slice(0, ci) : tok;
+    const [dur, finger] = (ci >= 0 ? tok.slice(ci + 1) : '1').split('/');
     const d = +dur;
-    if (note !== 'R') out.push({ midi: toMidi(note), beat, dur: d, finger: finger ? +finger : undefined });
+    if (note !== 'R') {
+      const midi = note.startsWith('[') ? note.slice(1, -1).split(',').map(toMidi) : toMidi(note);
+      const ev = { midi, beat, dur: d };
+      if (finger) ev.finger = +finger;
+      if (sym) ev.sym = sym.replace(/_/g, ' ');
+      out.push(ev);
+    }
+    beat += d;
+  });
+  return out;
+}
+// Band chords from a simple chart: "C:4 F:4 G:4 C:4" (m = minor, 7 ignored for bass).
+export function chart(str, octave = 3) {
+  let beat = 0; const out = [];
+  str.split(/\s+/).filter(Boolean).forEach(tok => {
+    const [name, dur] = tok.split(':'); const d = +(dur || 4);
+    const m = /^([A-G][#b]?)(m(?!aj))?/.exec(name);
+    out.push({ beat, dur: d, root: toMidi(m[1] + octave), minor: !!m[2], name });
     beat += d;
   });
   return out;
@@ -28,10 +47,10 @@ export const THEMES = [
 
 export const LINES = [
   { id: 'foundations', name: 'Foundations Local', who: 'Everyone starts here', ready: true },
-  { id: 'carol', name: 'Carol Line', who: 'Songs and Christmas carols, solo and duet', ready: false },
-  { id: 'gospel', name: 'Gospel Line', who: 'Worship chords, charts, and playing with a team', ready: false },
-  { id: 'conservatory', name: 'Conservatory Line', who: 'Classical technique and repertoire', ready: false },
-  { id: 'bluenote', name: 'Blue Note Line', who: 'Jazz and pop: grooves, 7th chords, lead sheets', ready: false },
+  { id: 'carol', name: 'Carol Line', who: 'Songs and Christmas carols, solo and duet', ready: true },
+  { id: 'gospel', name: 'Gospel Line', who: 'Worship chords, charts, and playing with a team', ready: true },
+  { id: 'conservatory', name: 'Conservatory Line', who: 'Classical technique and repertoire', ready: true },
+  { id: 'bluenote', name: 'Blue Note Line', who: 'Jazz and pop: grooves, 7th chords, lead sheets', ready: true },
 ];
 
 // ---------- Pieces ----------
@@ -42,6 +61,53 @@ export const PIECES = {
   hotCrossBuns: { title: 'Hot Cross Buns', credit: 'Traditional', notes: parse('E4:1/3 D4:1/2 C4:2/1 | E4:1/3 D4:1/2 C4:2/1 | C4:1/1 C4:1/1 D4:1/2 D4:1/2 | E4:1/3 D4:1/2 C4:2/1'), bpm: 84, range: [57, 69], hand: 'RH' },
   odeToJoy: { title: 'Ode to Joy (line 1)', credit: 'Beethoven, 1824 (public domain)', notes: parse('E4:1/3 E4:1/3 F4:1/4 G4:1/5 | G4:1/5 F4:1/4 E4:1/3 D4:1/2 | C4:1/1 C4:1/1 D4:1/2 E4:1/3 | E4:1.5/3 D4:0.5/2 D4:2/2'), bpm: 84, range: [57, 72], hand: 'RH',
     phrases: [[0, 7], [8, 14]] },
+
+  // ---- Carol Line ----
+  jingle: { title: 'Jingle Bells (chorus)', credit: 'James Lord Pierpont, 1857 (public domain)',
+    notes: parse('E4:1/3 E4:1/3 E4:2/3 | E4:1/3 E4:1/3 E4:2/3 | E4:1/3 G4:1/5 C4:1.5/1 D4:0.5/2 | E4:4/3 | F4:1/4 F4:1/4 F4:1.5/4 F4:0.5/4 | F4:1/4 E4:1/3 E4:1/3 E4:0.5/3 E4:0.5/3 | E4:1/3 D4:1/2 D4:1/2 E4:1/3 | D4:2/2 G4:2/5'),
+    bpm: 96, range: [57, 72], hand: 'RH', phrases: [[0, 10], [11, 25]] },
+  jingleDuet: { title: 'Jingle Bells duet', credit: 'Pierpont, 1857 (public domain) · duet arrangement: Night Train', bpm: 96, range: [45, 72], hand: 'RH',
+    duet: { parts: [
+      { id: 'melody', name: 'Melody (upper)', clef: 'treble', notes: null },
+      { id: 'bass', name: 'Bass notes (lower, easy)', clef: 'bass', notes: parse('C3:4/1 | C3:4/1 | C3:4/1 | C3:4/1 | F3:4/1 | C3:4/1 | G3:4/1 | G3:4/1') },
+      { id: 'chords', name: 'Chords (lower)', clef: 'bass', notes: parse('[C3,E3,G3]:4@C | [C3,E3,G3]:4 | [C3,E3,G3]:4 | [C3,E3,G3]:4 | [C3,F3,A3]:4@F | [C3,E3,G3]:4@C | [B2,D3,G3]:4@G | [B2,D3,G3]:4') },
+    ] } },
+  odeDuet: { title: 'Ode to Joy duet', credit: 'Beethoven (public domain) · duet arrangement: Night Train', bpm: 84, range: [45, 72], hand: 'RH',
+    duet: { parts: [
+      { id: 'melody', name: 'Melody (upper)', clef: 'treble', notes: null },
+      { id: 'bass', name: 'Bass notes (lower, easy)', clef: 'bass', notes: parse('C3:4/1 | G3:4/5 | C3:4/1 | G3:4/5') },
+      { id: 'chords', name: 'Chords (lower)', clef: 'bass', notes: parse('[C3,E3,G3]:4@C | [B2,D3,G3]:4@G | [C3,E3,G3]:4@C | [B2,D3,G3]:4@G') },
+    ] } },
+
+  // ---- Gospel Line (worship) ----
+  chordsC: { title: 'C – F – G – C (root position)', notes: parse('[C4,E4,G4]:4@C_(1) | [F4,A4,C5]:4@F_(4) | [G4,B4,D5]:4@G_(5) | [C4,E4,G4]:4@C_(1)'),
+    lh: parse('C3:4 | F3:4 | G3:4 | C3:4'), bpm: 72, range: [48, 76], hand: 'RH', judge: 'chords',
+    band: chart('C:4 F:4 G:4 C:4'), bandStyle: 'worship' },
+  chordsCsmooth: { title: 'C – F – G – C (smooth)', notes: parse('[C4,E4,G4]:4@C | [C4,F4,A4]:4@F | [B3,D4,G4]:4@G | [C4,E4,G4]:4@C'),
+    lh: parse('C3:4 | F3:4 | G3:4 | C3:4'), bpm: 72, range: [45, 72], hand: 'RH', judge: 'chords',
+    band: chart('C:4 F:4 G:4 C:4'), bandStyle: 'worship' },
+  fourChords: { title: '1 – 5 – 6m – 4 in G', notes: parse('[G4,B4,D5]:4@G_(1) | [A4,D5,F#5]:4@D_(5) | [G4,B4,E5]:4@Em_(6m) | [G4,C5,E5]:4@C_(4)'),
+    lh: parse('G3:4 | D3:4 | E3:4 | C3:4'), keySig: { sharps: 1 }, bpm: 76, range: [48, 79], hand: 'RH', judge: 'chords',
+    band: chart('G:4 D:4 Em:4 C:4'), bandStyle: 'worship' },
+  fourPulse: { title: '1 – 5 – 6m – 4 with a pulse', keySig: { sharps: 1 }, bpm: 76, range: [48, 79], hand: 'RH', judge: 'chords',
+    notes: parse('[G4,B4,D5]:1@G [G4,B4,D5]:1 [G4,B4,D5]:1 [G4,B4,D5]:1 | [A4,D5,F#5]:1@D [A4,D5,F#5]:1 [A4,D5,F#5]:1 [A4,D5,F#5]:1 | [G4,B4,E5]:1@Em [G4,B4,E5]:1 [G4,B4,E5]:1 [G4,B4,E5]:1 | [G4,C5,E5]:1@C [G4,C5,E5]:1 [G4,C5,E5]:1 [G4,C5,E5]:1'),
+    lh: parse('G3:4 | D3:4 | E3:4 | C3:4'), band: chart('G:4 D:4 Em:4 C:4'), bandStyle: 'worship' },
+
+  // ---- Conservatory Line ----
+  gScale: { title: 'G major scale (right hand)', notes: parse('G4:0.5/1 A4:0.5/2 B4:0.5/3 C5:0.5/1 D5:0.5/2 E5:0.5/3 F#5:0.5/4 G5:0.5/5 | F#5:0.5/4 E5:0.5/3 D5:0.5/2 C5:0.5/1 B4:0.5/3 A4:0.5/2 G4:1/1'),
+    keySig: { sharps: 1 }, bpm: 80, range: [55, 81], hand: 'RH' },
+  minuet: { title: 'Minuet in G (bars 1–8)', credit: 'Christian Petzold, c. 1725, long credited to J. S. Bach (public domain)', beatsPerBar: 3, keySig: { sharps: 1 },
+    notes: parse('D5:1/5 G4:0.5/1 A4:0.5/2 B4:0.5/3 C5:0.5/4 | D5:1/5 G4:1/1 G4:1/1 | E5:1/4 C5:0.5/1 D5:0.5/2 E5:0.5/3 F#5:0.5/4 | G5:1/5 G4:1/1 G4:1/1 | C5:1/4 D5:0.5/5 C5:0.5/4 B4:0.5/3 A4:0.5/2 | B4:1/3 C5:0.5/4 B4:0.5/3 A4:0.5/2 G4:0.5/1 | F#4:1/1 G4:0.5/2 A4:0.5/3 B4:0.5/4 G4:0.5/2 | A4:3/3'),
+    lh: parse('G3:3/1 | B3:3/2 | C4:3/1 | B3:3/2 | A3:3/3 | G3:3/4 | D4:3/1 | D3:3/5'),
+    lhNote: 'Simplified left hand: one held note per bar.',
+    bpm: 108, range: [48, 81], hand: 'RH', phrases: [[0, 15], [16, 31]] },
+
+  // ---- Blue Note Line ----
+  shells: { title: 'ii – V – I shells in C', notes: parse('[D3,F3]:4@Dm7 | [G2,F3]:4@G7 | [C3,E3]:4@Cmaj7 | [C3,E3]:4'), clef: 'bass',
+    bpm: 112, range: [41, 64], hand: 'LH', judge: 'chords', band: chart('Dm7:4 G7:4 C:8', 2), bandStyle: 'swing' },
+  charleston: { title: 'Charleston comping', clef: 'bass', bpm: 112, range: [41, 64], hand: 'LH', judge: 'chords',
+    notes: parse('[D3,F3]:1.5@Dm7 [D3,F3]:0.5 R:2 | [G2,F3]:1.5@G7 [G2,F3]:0.5 R:2 | [C3,E3]:1.5@Cmaj7 [C3,E3]:0.5 R:2 | [C3,E3]:1.5 [C3,E3]:0.5 R:2'),
+    band: chart('Dm7:4 G7:4 C:8', 2), bandStyle: 'swing' },
 };
 
 // ---------- Items ----------
@@ -107,6 +173,76 @@ export const ITEMS = {
   'f3.compose': { type: 'improv', title: 'Your own 4-note tune', skill: 'theory', minutes: 2, compose: true,
     howto: 'Make up a tiny tune with C D E F G. Start on C and end on C. Play it three times so you remember it. Tap the keys below to save it to your ticket.' },
   'f3.check': { type: 'checkpoint', title: 'Ticket inspection: Ode to Joy', piece: 'odeToJoy', skill: 'reading', minutes: 3 },
+
+  // ---- Carol Line: Jingle Bells Junction ----
+  'c1.lesson': { type: 'lesson', title: 'Playing with a partner', skill: 'rhythm', minutes: 2, slides: [
+    { text: 'In a duet, two players share one piano. One plays the upper part (melody), the other the lower part (bass notes or chords).' },
+    { text: 'The golden rule: keep going. If you slip, skip ahead to the next beat and rejoin your partner. A steady beat matters more than every note.' },
+    { text: 'Practice with the virtual partner first. The app plays the other part so you can hear how they fit. Then try it with family!' },
+  ] },
+  'c1.jingle': { type: 'piano', title: 'Jingle Bells', piece: 'jingle', skill: 'reading', minutes: 3, core: true,
+    howto: 'Right hand C position. Notice "C. D" in bar 3: the C is long (one and a half beats), the D is short. Practice each phrase, then the whole chorus.' },
+  'c1.duet': { type: 'piano', title: 'Jingle Bells duet', piece: 'jingleDuet', skill: 'rhythm', minutes: 3, core: true,
+    howto: 'Pick your part. The virtual partner plays the other one. Beginners: try "Bass notes" (one note per bar, left hand). Then swap!' },
+  'c1.ode': { type: 'piano', title: 'Ode to Joy duet', piece: 'odeDuet', skill: 'rhythm', minutes: 2.5,
+    howto: 'A second duet with the melody you already know. Try each part with the virtual partner.' },
+  'c1.ear': { type: 'ear', title: 'Same or different?', skill: 'ear', minutes: 1.5, ear: 'samediff', count: 6 },
+  'c1.check': { type: 'checkpoint', title: 'Ticket inspection: Jingle Bells', piece: 'jingle', skill: 'reading', minutes: 3 },
+
+  // ---- Gospel Line: Chapel Hill ----
+  'g1.lesson': { type: 'lesson', title: 'Chords: three notes, skip a key', skill: 'theory', minutes: 2, slides: [
+    { text: 'A chord is three or more notes played together. The basic chord (a triad) is built by skipping every other white key: play one, skip one, play one, skip one, play one.', kb: { lo: 55, hi: 74, labels: 'all', marks: { 60: 'target', 64: 'target', 67: 'target' } } },
+    { text: 'C chord = C E G. F chord = F A C. G chord = G B D. These three chords play thousands of songs.', staff: { notes: '[C4,E4,G4]:4@C | [F4,A4,C5]:4@F | [G4,B4,D5]:4@G' } },
+    { text: 'In worship sets, the left hand usually plays the chord\'s name note (the root), low. The right hand plays the chord. The band handles the rhythm, so start with whole notes.' },
+  ] },
+  'g1.build': { type: 'chordquiz', title: 'Build the chord', skill: 'theory', minutes: 2, core: true, chords: ['C', 'F', 'G', 'Am', 'Dm', 'Em'], count: 5 },
+  'g1.cfgc': { type: 'piano', title: 'C – F – G – C with the band', piece: 'chordsC', skill: 'technique', minutes: 3, core: true,
+    howto: 'Right hand plays each chord for 4 beats. Left hand plays the root note (optional at first). Lift and land each chord together, all three fingers at once.' },
+  'g1.smooth': { type: 'piano', title: 'Smooth changes (inversions)', piece: 'chordsCsmooth', skill: 'theory', minutes: 3, core: true,
+    howto: 'Pro secret: keep notes that are shared, and move the others the shortest way. From C (C E G), the F chord becomes C F A: C stays put! The G chord becomes B D G. Your hand barely moves.' },
+  'g1.ear': { type: 'ear', title: 'Major or minor?', skill: 'ear', minutes: 1.5, ear: 'majmin', count: 6 },
+  'g1.check': { type: 'checkpoint', title: 'Ticket inspection: C – F – G – C', piece: 'chordsCsmooth', skill: 'theory', minutes: 3 },
+
+  // ---- Gospel Line: Four Chords Crossing ----
+  'g2.lesson': { type: 'lesson', title: 'Nashville numbers', skill: 'theory', minutes: 2.5, slides: [
+    { text: 'Worship teams talk in numbers so songs can change key in seconds. In any key, number the scale notes 1 to 7. The chords built on them are the "1 chord", the "4 chord", and so on.' },
+    { text: 'In the key of G: 1 = G, 4 = C, 5 = D, 6m = Em (the 6 chord is minor). "1 – 5 – 6m – 4" is the most common progression in modern worship and pop.', staff: { notes: '[G4,B4,D5]:4@1_(G) | [A4,D5,F#5]:4@5_(D) | [G4,B4,E5]:4@6m_(Em) | [G4,C5,E5]:4@4_(C)', keySig: 1 } },
+    { text: 'A chord chart looks like "1 | 5 | 6m | 4". The leader might call "to the 4!" or hold up four fingers. Knowing the numbers lets you follow.' },
+  ] },
+  'g2.numbers': { type: 'choice', title: 'Number drill', skill: 'theory', minutes: 2, core: true, quiz: 'nashville', count: 6 },
+  'g2.four': { type: 'piano', title: '1 – 5 – 6m – 4 in G', piece: 'fourChords', skill: 'technique', minutes: 3, core: true,
+    howto: 'These are already the smooth voicings: your thumb stays near G and A. Left hand plays the roots G, D, E, C. Hold each chord 4 beats.' },
+  'g2.pulse': { type: 'piano', title: 'Add a pulse', piece: 'fourPulse', skill: 'rhythm', minutes: 3, core: true,
+    howto: 'Same chords, now four even quarter-note pulses per bar, like a strummed guitar. Keep the wrist loose and bounce from the elbow. Play softer than you think: the band carries the beat.' },
+  'g2.check': { type: 'checkpoint', title: 'Ticket inspection: 1 – 5 – 6m – 4', piece: 'fourChords', skill: 'theory', minutes: 3 },
+
+  // ---- Conservatory Line: Minuet Station ----
+  'k1.lesson': { type: 'lesson', title: '3/4 time, key signatures, hands separate', skill: 'reading', minutes: 2, slides: [
+    { text: 'A minuet is a dance in 3: count "1 2 3, 1 2 3", with a slight lean on beat 1.' },
+    { text: 'The ♯ at the start of each line is the key signature: every F is played as F♯ (the black key just right of F). This piece is in G major.', staff: { notes: 'G4:1 A4:1 B4:1 | C5:1 D5:1 E5:1 | F#5:1 G5:2', keySig: 1, bpb: 3 } },
+    { text: 'How pros learn a piece: hands separate first, one phrase at a time, slowly. Hands together only when each hand is easy alone.' },
+  ] },
+  'k1.scale': { type: 'piano', title: 'G major scale', piece: 'gScale', skill: 'technique', minutes: 2.5, core: true,
+    howto: 'Thumb tucks under after B (finger 3) to land on C. Keep the wrist level and let the thumb glide; do not twist the hand. Even eighth notes.' },
+  'k1.minuet': { type: 'piano', title: 'Minuet in G', piece: 'minuet', skill: 'reading', minutes: 4, core: true,
+    howto: 'Start right hand alone, phrase 1. Then left hand alone. Then together, slowly. Shape each phrase: grow toward the middle, relax at the end. Eighth notes even and light.' },
+  'k1.ear': { type: 'ear', title: 'Higher or lower?', skill: 'ear', minutes: 1.5, ear: 'updown', count: 6 },
+  'k1.check': { type: 'checkpoint', title: 'Ticket inspection: Minuet in G (right hand)', piece: 'minuet', skill: 'reading', minutes: 3 },
+
+  // ---- Blue Note Line: Shell Station ----
+  'b1.lesson': { type: 'lesson', title: '7th chords and shell voicings', skill: 'theory', minutes: 2.5, slides: [
+    { text: 'Jazz adds a 4th note to triads: the 7th. Dm7 = D F A C. G7 = G B D F. Cmaj7 = C E G B. Their sound is the core of jazz harmony.' },
+    { text: 'ii – V – I (Dm7 – G7 – Cmaj7) is the most important progression in jazz. Thousands of standards are built from it.' },
+    { text: 'Shells: the left hand plays just the root plus the 3rd or 7th. Dm7 = D + F, G7 = G + F, Cmaj7 = C + E. Notice the F stays while the root moves. That is voice leading.', staff: { notes: '[D3,F3]:4@Dm7 | [G2,F3]:4@G7 | [C3,E3]:4@Cmaj7', clef: 'bass' } },
+  ] },
+  'b1.build': { type: 'chordquiz', title: 'Spell the 7th chords', skill: 'theory', minutes: 2, core: true, chords: ['Dm7', 'G7', 'Cmaj7', 'Am7', 'D7', 'Fmaj7'], count: 5 },
+  'b1.shells': { type: 'piano', title: 'ii – V – I shells with the band', piece: 'shells', skill: 'technique', minutes: 3, core: true,
+    howto: 'Left hand: D+F, G+F, C+E, each held for a bar. The bass and drums swing behind you. Right hand free: later it will play melody or improvise.' },
+  'b1.charleston': { type: 'piano', title: 'Charleston comping', piece: 'charleston', skill: 'rhythm', minutes: 3, core: true,
+    howto: 'The classic comping rhythm: hit on beat 1 (long), then a short hit on the "and" of 2. Then rest. Say it: "ONE (two) AND (three four)". Swing it: lazy and relaxed.' },
+  'b1.blues': { type: 'improv', title: 'Blues scale jam', skill: 'ear', minutes: 3, band: chart('C7:4 C7:4 C7:4 C7:4 F7:4 F7:4 C7:4 C7:4 G7:4 F7:4 C7:4 G7:4', 2), bandStyle: 'swing', bpm: 120, blues: true,
+    howto: 'A 12-bar blues in C with a swinging band. Use the C blues scale: C E♭ F F♯ G B♭ (marked keys). Start with 2–3 notes, leave space, repeat ideas. Bend toward the F♯ and resolve to G or C.' },
+  'b1.check': { type: 'checkpoint', title: 'Ticket inspection: ii – V – I shells', piece: 'shells', skill: 'theory', minutes: 3 },
 };
 
 export const STATIONS = [
@@ -122,7 +258,41 @@ export const STATIONS = [
     story: 'At the crossing, a brass band waits on the platform. "Five fingers, five keys," Oona grins. "You are ready for a real melody."',
     passenger: 'A retired music teacher hums a famous tune and asks if you can play it.',
     items: ['f3.lesson', 'f3.five', 'f3.readLesson', 'f3.buns', 'f3.read', 'f3.ode', 'f3.ear', 'f3.compose'], checkpoint: 'f3.check' },
+
+  { id: 'c1', line: 'carol', name: 'Jingle Bells Junction', postcard: 'A snowy platform strung with lights',
+    story: 'Snow drifts past the windows. A family of carolers boards with mittens and cocoa. "Can you play with us?" the youngest asks.',
+    passenger: 'The caroling family wants a duet they can sing along to.',
+    items: ['c1.lesson', 'c1.jingle', 'c1.duet', 'c1.ear', 'c1.ode'], checkpoint: 'c1.check' },
+  { id: 'g1', line: 'gospel', name: 'Chapel Hill', postcard: 'A small white chapel glowing at dusk',
+    story: 'The train stops below a hilltop chapel. The worship leader waves from the steps: "Our keys player is out sick. Know any chords?"',
+    passenger: 'The worship leader needs someone to hold down the chords.',
+    items: ['g1.lesson', 'g1.build', 'g1.cfgc', 'g1.smooth', 'g1.ear'], checkpoint: 'g1.check' },
+  { id: 'g2', line: 'gospel', name: 'Four Chords Crossing', postcard: 'A crossroads lit by a hundred lanterns',
+    story: 'At the crossing, a band rehearses under a tent. The drummer counts off: "1, 5, 6, 4. Ready?"',
+    passenger: 'The band leader calls the chords by number. Can you follow?',
+    items: ['g2.lesson', 'g2.numbers', 'g2.four', 'g2.pulse'], checkpoint: 'g2.check' },
+  { id: 'k1', line: 'conservatory', name: 'Minuet Station', postcard: 'A marble hall with a gilded harpsichord',
+    story: 'The Conservatory Express glides into a station of marble and brass. A dancing master taps his cane in threes.',
+    passenger: 'The dancing master needs a minuet for tonight\'s ball.',
+    items: ['k1.lesson', 'k1.scale', 'k1.minuet', 'k1.ear'], checkpoint: 'k1.check' },
+  { id: 'b1', line: 'bluenote', name: 'Shell Station', postcard: 'A smoky club with a neon "Blue Note" sign',
+    story: 'Down a staircase, a trio is warming up. The bass player nods at the empty piano bench: "Grab a seat. ii–V–I in C."',
+    passenger: 'The trio needs a pianist who can comp.',
+    items: ['b1.lesson', 'b1.build', 'b1.shells', 'b1.charleston', 'b1.blues'], checkpoint: 'b1.check' },
 ];
+
+PIECES.jingleDuet.duet.parts[0].notes = PIECES.jingle.notes;
+PIECES.odeDuet.duet.parts[0].notes = PIECES.odeToJoy.notes;
+PIECES.jingleDuet.phrases = PIECES.jingle.phrases;
+
+export const CHORD_SPELL = {
+  C: [0, 4, 7], F: [5, 9, 0], G: [7, 11, 2], Am: [9, 0, 4], Dm: [2, 5, 9], Em: [4, 7, 11], D: [2, 6, 9],
+  Dm7: [2, 5, 9, 0], G7: [7, 11, 2, 5], Cmaj7: [0, 4, 7, 11], Am7: [9, 0, 4, 7], D7: [2, 6, 9, 0], Fmaj7: [5, 9, 0, 4],
+};
+export const KEYS_NASHVILLE = {
+  C: ['C', 'Dm', 'Em', 'F', 'G', 'Am'], G: ['G', 'Am', 'Bm', 'C', 'D', 'Em'], D: ['D', 'Em', 'F#m', 'G', 'A', 'Bm'],
+  A: ['A', 'Bm', 'C#m', 'D', 'E', 'F#m'], E: ['E', 'F#m', 'G#m', 'A', 'B', 'C#m'],
+};
 
 export const READING_LEVELS = [
   { id: 0, name: 'Falling notes', desc: 'Notes fall onto lit keys' },

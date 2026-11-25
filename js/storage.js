@@ -2,8 +2,8 @@
 // Primary: IndexedDB. Mirror: localStorage (second copy). Plus backup codes and file export.
 // Every player record carries a schema version; migrate() upgrades old records safely.
 
-export const APP_VERSION = '0.1.0';
-export const SCHEMA_VERSION = 1;
+export const APP_VERSION = '0.2.0';
+export const SCHEMA_VERSION = 2;
 
 const DB_NAME = 'nighttrain';
 const STORE = 'kv';
@@ -135,13 +135,18 @@ export function newPlayer(name) {
     lastBackup: null,
     sessionsSinceBackup: 0,
     goals: '',
+    mainLine: null,
+    backingVol: 1,
   };
 }
 
 export function migrate(p) {
   if (!p) return p;
-  // Future migrations go here, one step at a time:
-  // if (p.schema < 2) { ...; p.schema = 2; }
+  // Migrations, one step at a time. Never delete player data here.
+  if ((p.schema || 0) < 2) {
+    if (p.mainLine === undefined) p.mainLine = (p.lines || []).find(l => l !== 'foundations') || null;
+    if (p.backingVol === undefined) p.backingVol = 1;
+  }
   const fresh = newPlayer(p.name || 'Player');
   for (const k of Object.keys(fresh)) if (p[k] === undefined) p[k] = fresh[k];
   for (const k of Object.keys(fresh.skills)) if (p.skills[k] === undefined) p.skills[k] = 0;

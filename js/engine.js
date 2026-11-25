@@ -25,7 +25,10 @@ export function recordRating(p, id, rating, now = Date.now(), { tempoBased = fal
   let tempoUp = false;
   if (tempoBased) {
     s.cleanStreak = rating === 'clean' ? s.cleanStreak + 1 : 0;
-    if (s.cleanStreak >= 3 && s.tempoStep < TEMPO_LADDER.length - 1) { s.tempoStep++; s.cleanStreak = 0; tempoUp = true; }
+    if (s.cleanStreak >= 3 && s.tempoStep < TEMPO_LADDER.length - 1) {
+      s.tempoStep++; s.cleanStreak = 0; tempoUp = true;
+      if (s.tempoPct != null && s.tempoPct < TEMPO_LADDER[s.tempoStep]) s.tempoPct = TEMPO_LADDER[s.tempoStep];
+    }
   }
   if (rating === 'clean') s.best = Math.max(s.best || 0, TEMPO_LADDER[s.tempoStep]);
   return { tempoUp, state: s };
@@ -33,14 +36,16 @@ export function recordRating(p, id, rating, now = Date.now(), { tempoBased = fal
 
 export function ratingFromScore(score) { return score >= 0.85 ? 'clean' : score >= 0.6 ? 'nearly' : 'notyet'; }
 
+const done = r => r && (r.status === 'passed' || r.status === 'placed');
+export const lineStations = line => STATIONS.filter(s => s.line === line);
+export function foundationsDone(p) { return lineStations('foundations').every(s => done(p.stations[s.id])); }
+
 export function stationStatus(p, st) {
   const rec = p.stations[st.id] || {};
-  if (rec.status === 'passed' || rec.status === 'placed') return rec.status;
-  const idx = STATIONS.indexOf(st);
-  if (idx > 0) {
-    const prev = p.stations[STATIONS[idx - 1].id];
-    if (!prev || (prev.status !== 'passed' && prev.status !== 'placed')) return 'locked';
-  }
+  if (done(rec)) return rec.status;
+  const ls = lineStations(st.line); const idx = ls.indexOf(st);
+  if (idx > 0 && !done(p.stations[ls[idx - 1].id])) return 'locked';
+  if (idx === 0 && st.line !== 'foundations' && !foundationsDone(p)) return 'locked';
   return stationReady(p, st) ? 'ready' : 'open';
 }
 
@@ -59,18 +64,40 @@ export function stationProgress(p, st) {
   return core.length ? pts / core.length : 1;
 }
 
+// The station a player is working on in a given line (or null if the line is finished/locked).
+export function lineCurrent(p, line) {
+  for (const st of lineStations(line)) { const x = stationStatus(p, st); if (x === 'open' || x === 'ready') return st; }
+  return null;
+}
+// Primary station: Foundations first; then the main line; then any chosen line with work left.
 export function currentStation(p) {
-  for (const st of STATIONS) {
-    const s = stationStatus(p, st);
-    if (s === 'open' || s === 'ready') return st;
-  }
-  return null; // all done (for now)
+  const f = lineCurrent(p, 'foundations'); if (f) return f;
+  const order = [p.mainLine, ...(p.lines || [])].filter((l, i, a) => l && l !== 'foundations' && a.indexOf(l) === i);
+  for (const l of order) { const st = lineCurrent(p, l); if (st) return st; }
+  return null;
+}
+// A second line to sprinkle in, rotating through the player's other chosen lines.
+export function secondaryStation(p, primary) {
+  if (!primary || primary.line === 'foundations') return null;
+  const others = (p.lines || []).filter(l => l !== 'foundations' && l !== primary.line).map(l => lineCurrent(p, l)).filter(Boolean);
+  if (!others.length) return null;
+  return others[(p.sessions || []).length % others.length];
 }
 
 export function passStation(p, stId, how = 'passed', detail = {}) {
   p.stations[stId] = { ...(p.stations[stId] || {}), status: how, at: Date.now(), ...detail };
   const st = STATIONS.find(s => s.id === stId);
   if (how === 'passed' && st && !p.postcards.includes(stId)) p.postcards.push(stId);
+}
+
+// Adaptive pace: players who mostly get things clean on the first try move faster
+// (mini-lessons become optional, more new material per session, higher starting tempo).
+export function paceFast(p) {
+  const firsts = Object.entries(p.items)
+    .filter(([id, s]) => ITEMS[id] && ['piano', 'keyquiz', 'readquiz', 'rhythm', 'ear', 'chordquiz', 'choice'].includes(ITEMS[id].type) && s.history && s.history.length)
+    .map(([, s]) => s.history[0].r);
+  if (firsts.length < 3) return p.level === 'experienced';
+  return firsts.filter(r => r === 'clean').length / firsts.length >= 0.7;
 }
 
 // ---------- Session plans ----------
@@ -84,12 +111,14 @@ export function buildSession(p, minutes = 15, now = Date.now(), rand = Math.rand
   blocks.push({ kind: 'warmup', id: 'warmup', label: 'Warm-up' });
 
   const seen = id => p.items[id] && p.items[id].reps > 0;
-  const allUnlocked = STATIONS.filter(s => { const x = stationStatus(p, s); return x !== 'locked'; });
+  const chosen = new Set(['foundations', ...(p.lines || [])]);
+  const allUnlocked = STATIONS.filter(s => chosen.has(s.line) && stationStatus(p, s) !== 'locked');
   const pool = allUnlocked.flatMap(s => s.items);
 
   // New material: first unseen items in current station (lesson + its follow-up), blocked practice for first exposure
-  const fresh = st ? st.items.filter(id => !seen(id)) : [];
-  const newBudget = minutes * 0.55;
+  const fast = paceFast(p);
+  const fresh = st ? st.items.filter(id => !seen(id) && !(fast && ITEMS[id].type === 'lesson')) : [];
+  const newBudget = minutes * (fast ? 0.75 : 0.55);
   const newItems = []; let nb = 0;
   for (const id of fresh) {
     const m = ITEMS[id].minutes + 0.5;
@@ -111,6 +140,14 @@ export function buildSession(p, minutes = 15, now = Date.now(), rand = Math.rand
 
   newItems.forEach(id => add('new', id, 'New'));
 
+  // A taste of another chosen line (keeps every goal moving without splitting focus)
+  const sec = secondaryStation(p, st);
+  if (sec && minutes >= 15) {
+    const secFresh = sec.items.filter(id => !seen(id) && !(fast && ITEMS[id].type === 'lesson'));
+    const pick = secFresh.length ? secFresh.slice(0, minutes >= 25 ? 2 : 1) : [];
+    pick.forEach(id => add('new', id, 'New · ' + sec.name));
+  }
+
   // Review: due items first, then weakest, interleaved across skills/stations
   const reviewable = pool.filter(id => seen(id) && ITEMS[id].type !== 'lesson' && ITEMS[id].type !== 'checkpoint' && !used.has(id));
   const due = reviewable.filter(id => (p.items[id].due || 0) <= now)
@@ -123,7 +160,7 @@ export function buildSession(p, minutes = 15, now = Date.now(), rand = Math.rand
   // Skill work: reading / ear / rhythm, pick the weakest skill that has an item available
   const skillOrder = ['reading', 'ear', 'rhythm'].sort((a, b) => (p.skills[a] || 0) - (p.skills[b] || 0));
   for (const sk of skillOrder) {
-    const cand = shuffle(pool.filter(id => ['readquiz', 'ear', 'rhythm', 'keyquiz'].includes(ITEMS[id].type) && ITEMS[id].skill === sk && !used.has(id)), rand);
+    const cand = shuffle(pool.filter(id => ['readquiz', 'ear', 'rhythm', 'keyquiz', 'chordquiz', 'choice'].includes(ITEMS[id].type) && ITEMS[id].skill === sk && !used.has(id)), rand);
     if (cand[0]) { add('skill', cand[0], 'Ear & reading'); break; }
   }
 
