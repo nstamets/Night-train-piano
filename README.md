@@ -1,6 +1,6 @@
 # Night Train 🚂 — family piano app
 
-Version 0.3.0. Static web app: no build step, no server, no accounts.
+Version 0.4.0. Static web app: no build step, no server, no accounts.
 
 ## Put it on GitHub Pages
 
@@ -14,10 +14,10 @@ Version 0.3.0. Static web app: no build step, no server, no accounts.
    README.md
    CHANGELOG.md
    js/app.js  js/audio.js  js/blocks.js  js/content.js
-   js/engine.js  js/notation.js  js/pitch.js  js/storage.js  js/midi.js  js/recorder.js
+   js/engine.js  js/notation.js  js/pitch.js  js/storage.js  js/midi.js  js/recorder.js  js/songs.js  js/sight.js
    icons/icon-192.png  icons/icon-512.png  icons/apple-touch-icon.png
    ```
-   (Dragging the `js` and `icons` folders in keeps the structure. 19 files in total.)
+   (Dragging the `js` and `icons` folders in keeps the structure. 21 files in total.)
 3. **Settings → Pages → Build and deployment → Source: Deploy from a branch → `main` / `/ (root)` → Save.**
 4. After about a minute, the app is at `https://<your-username>.github.io/night-train/`.
 5. On each iPhone: open that link in Safari → Share ⬆︎ → **Add to Home Screen** → open it from the Home Screen **before** creating players.
@@ -99,6 +99,14 @@ Version 0.3.0. Static web app: no build step, no server, no accounts.
     - Does "Save / share" open the iPhone share sheet?
 22. **Für Elise inspection:** the hands alternate, so the mic hears one line. Tell me if it keeps up at a comfortable tempo.
 23. **Landscape on the music stand:** is the two-column layout comfortable?
+
+## v0.4 tests
+
+24. **Mic report:** after a few inspections, open Settings → Microphone report → Share report. Send it to whoever is checking. Lots of "couldn't hear" means the phone placement needs work.
+25. **Follow the Leader** (Gospel → Key of D Depot): do the cues appear early enough to switch on time?
+26. **My Own Song:** enter a chart from a song you know. Do the voicings feel natural? Does changing the key work?
+27. **Sight-reading:** does Level 1 feel right for a beginner? Does it level up after three clean reads?
+28. **Silent Night duet:** play it as a family duet with two phones.
 
 ## Limits in this version (honest)
 

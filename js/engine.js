@@ -94,7 +94,7 @@ export function passStation(p, stId, how = 'passed', detail = {}) {
 // (mini-lessons become optional, more new material per session, higher starting tempo).
 export function paceFast(p) {
   const firsts = Object.entries(p.items)
-    .filter(([id, s]) => ITEMS[id] && ['piano', 'keyquiz', 'readquiz', 'rhythm', 'ear', 'chordquiz', 'choice', 'echo'].includes(ITEMS[id].type) && s.history && s.history.length)
+    .filter(([id, s]) => ITEMS[id] && ['piano', 'keyquiz', 'readquiz', 'rhythm', 'ear', 'chordquiz', 'choice', 'echo', 'cues', 'sight'].includes(ITEMS[id].type) && s.history && s.history.length)
     .map(([, s]) => s.history[0].r);
   if (firsts.length < 3) return p.level === 'experienced';
   return firsts.filter(r => r === 'clean').length / firsts.length >= 0.7;
@@ -114,6 +114,8 @@ export function buildSession(p, minutes = 15, now = Date.now(), rand = Math.rand
   const chosen = new Set(['foundations', ...(p.lines || [])]);
   const allUnlocked = STATIONS.filter(s => chosen.has(s.line) && stationStatus(p, s) !== 'locked');
   const pool = allUnlocked.flatMap(s => s.items);
+  // Sight-reading joins the mix once a player reads a little (after Middle C Crossing, or a reader from placement)
+  const f3 = p.stations.f3; if ((f3 && (f3.status === 'passed' || f3.status === 'placed')) || p.readsTreble) pool.push('x.sight');
 
   // New material: first unseen items in current station (lesson + its follow-up), blocked practice for first exposure
   const fast = paceFast(p);
@@ -160,7 +162,7 @@ export function buildSession(p, minutes = 15, now = Date.now(), rand = Math.rand
   // Skill work: reading / ear / rhythm, pick the weakest skill that has an item available
   const skillOrder = ['reading', 'ear', 'rhythm'].sort((a, b) => (p.skills[a] || 0) - (p.skills[b] || 0));
   for (const sk of skillOrder) {
-    const cand = shuffle(pool.filter(id => ['readquiz', 'ear', 'rhythm', 'keyquiz', 'chordquiz', 'choice', 'echo'].includes(ITEMS[id].type) && ITEMS[id].skill === sk && !used.has(id)), rand);
+    const cand = shuffle(pool.filter(id => ['readquiz', 'ear', 'rhythm', 'keyquiz', 'chordquiz', 'choice', 'echo', 'cues', 'sight'].includes(ITEMS[id].type) && ITEMS[id].skill === sk && !used.has(id)), rand);
     if (cand[0]) { add('skill', cand[0], 'Ear & reading'); break; }
   }
 

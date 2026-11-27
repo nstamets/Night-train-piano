@@ -120,6 +120,23 @@ export const PIECES = {
     notes: parse('[D3,F3]:1.5@Dm7 [D3,F3]:0.5 R:2 | [G2,F3]:1.5@G7 [G2,F3]:0.5 R:2 | [C3,E3]:1.5@Cmaj7 [C3,E3]:0.5 R:2 | [C3,E3]:1.5 [C3,E3]:0.5 R:2'),
     band: chart('Dm7:4 G7:4 C:8', 2), bandStyle: 'swing' },
 
+  // ---- Gospel: more stations ----
+  fourD: { title: '1 – 5 – 6m – 4 in D', notes: parse('[D4,F#4,A4]:4@D_(1) | [C#4,E4,A4]:4@A_(5) | [D4,F#4,B4]:4@Bm_(6m) | [D4,G4,B4]:4@G_(4)'),
+    lh: parse('D3:4 | A2:4 | B2:4 | G2:4'), keySig: { sharps: 2 }, bpm: 76, range: [41, 72], hand: 'RH', judge: 'chords',
+    band: chart('D:4 A:4 Bm:4 G:4', 2), bandStyle: 'worship' },
+  fourE: { title: '1 – 5 – 6m – 4 in E', notes: parse('[E4,G#4,B4]:4@E_(1) | [D#4,F#4,B4]:4@B_(5) | [E4,G#4,C#5]:4@C#m_(6m) | [E4,A4,C#5]:4@A_(4)'),
+    lh: parse('E3:4 | B2:4 | C#3:4 | A2:4'), keySig: { sharps: 4 }, bpm: 76, range: [45, 74], hand: 'RH', judge: 'chords',
+    band: chart('E:4 B:4 C#m:4 A:4', 2), bandStyle: 'worship' },
+  susRes: { title: 'Sus chords resolving', notes: parse('[D4,G4,A4]:2@Dsus4 [D4,F#4,A4]:2@D | [D4,G4,A4]:2@Dsus4 [D4,F#4,A4]:2@D | [D4,E4,A4]:2@Asus4 [C#4,E4,A4]:2@A | [D4,E4,A4]:2@Asus4 [C#4,E4,A4]:2@A'),
+    lh: parse('D3:4 | D3:4 | A2:4 | A2:4'), keySig: { sharps: 2 }, bpm: 72, range: [43, 72], hand: 'RH', judge: 'chords',
+    band: chart('D:8 A:8', 2), bandStyle: 'pad' },
+  anchor: { title: 'Anchor notes: G – Dsus – Em7 – Cadd9', notes: parse('[B4,D5,G5]:4@G | [A4,D5,G5]:4@Dsus/F# | [B4,D5,G5]:4@Em7 | [C5,D5,G5]:4@Cadd9'),
+    lh: parse('G2:4 | F#2:4 | E2:4 | C3:4'), keySig: { sharps: 1 }, bpm: 72, range: [40, 81], hand: 'RH', judge: 'chords',
+    band: chart('G:4 D:4 Em:4 C:4', 2), bandStyle: 'worship' },
+  walkup: { title: 'Walking bass: slash chords', notes: parse('[C4,E4,G4]:4@C | [B3,D4,G4]:4@G/B | [C4,E4,A4]:4@Am | [B3,D4,G4]:4@G | [C4,F4,A4]:4@F | [C4,E4,G4]:4@C/E | [D4,F4,A4]:4@Dm | [B3,D4,G4]:4@G'),
+    lh: parse('C3:4 | B2:4 | A2:4 | G2:4 | F2:4 | E2:4 | D2:4 | G2:4'), bpm: 72, range: [38, 72], hand: 'RH', judge: 'chords',
+    band: chart('C:4 G:4 Am:4 G:4 F:4 C:4 Dm:4 G:4', 2), bandStyle: 'worship' },
+
   // ---- Conservatory: more stations ----
   arpC: { title: 'C major arpeggio (right hand)', notes: parse('C4:0.5/1 E4:0.5/2 G4:0.5/3 C5:0.5/1 E5:0.5/2 G5:0.5/3 C6:1/5 | G5:0.5/3 E5:0.5/2 C5:0.5/1 G4:0.5/3 E4:0.5/2 C4:1.5/1'),
     bpm: 80, range: [57, 86], hand: 'RH' },
@@ -250,6 +267,52 @@ export const ITEMS = {
   'c1.ear': { type: 'ear', title: 'Same or different?', skill: 'ear', minutes: 1.5, ear: 'samediff', count: 6 },
   'c1.check': { type: 'checkpoint', title: 'Ticket inspection: Jingle Bells', piece: 'jingle', skill: 'reading', minutes: 3 },
 
+  // ---- Everyone: endless sight-reading (generated fresh each time) ----
+  'x.sight': { type: 'sight', title: 'Sight-reading', skill: 'reading', minutes: 3, count: 3 },
+
+  // ---- Carol Line: Holly Hall ----
+  'c2.lesson': { type: 'lesson', title: 'Stretching out of C position', skill: 'technique', minutes: 2, slides: [
+    { text: 'Deck the Halls dips one key below C, to B. Keep your thumb on C and reach down with it (finger 1 on B), then come right back.' },
+    { text: 'Good King Wenceslas sits a little lower: thumb on G below middle C. Watch the first note and find your starting key before you play.' },
+    { text: 'Fa-la-la: the quick notes (eighths) come in pairs. Count "1-and 2-and" and keep them light and even.' },
+  ] },
+  'c2.deck': { type: 'piano', title: 'Deck the Halls', piece: 'deck', skill: 'reading', minutes: 3, core: true,
+    howto: 'Thumb on C, but finger 5 starts on G. Lines 1, 2, and 4 are the same, so learn line 1 well and you know most of the carol. Line 3 climbs: let your hand move up.' },
+  'c2.deckDuet': { type: 'piano', title: 'Deck the Halls duet', piece: 'deckDuet', skill: 'rhythm', minutes: 3, core: true,
+    howto: 'Choose your part. Bass notes: just C, G, and D with your left hand, one per bar. Chords: three-note shapes that barely move.' },
+  'c2.king': { type: 'piano', title: 'Good King Wenceslas', piece: 'wenceslas', skill: 'reading', minutes: 3,
+    howto: 'Thumb on G below middle C (finger 1), so C is finger 4. Steady and stately: march the quarter notes.' },
+  'c2.kingDuet': { type: 'piano', title: 'Good King Wenceslas duet', piece: 'wenceslasDuet', skill: 'rhythm', minutes: 3,
+    howto: 'Try the melody with a partner on bass notes, then swap.' },
+  'c2.check': { type: 'checkpoint', title: 'Ticket inspection: Deck the Halls', piece: 'deck', skill: 'reading', minutes: 3 },
+
+  // ---- Carol Line: Joy Junction ----
+  'c3.lesson': { type: 'lesson', title: 'A whole octave: crossing fingers', skill: 'technique', minutes: 2, slides: [
+    { text: 'Joy to the World starts high and walks straight down eight notes: C B A G F E D C. That is more keys than you have fingers!' },
+    { text: 'The trick: play C B A G F with fingers 5 4 3 2 1, then cross finger 3 over your thumb to land on E, and finish D (2) C (1).', kb: { lo: 55, hi: 74, labels: 'all', fingers: { 72: 5, 71: 4, 69: 3, 67: 2, 65: 1, 64: 3, 62: 2, 60: 1 } } },
+    { text: 'Let the thumb stay relaxed and the hand glide over it, like a train going over a hill. No twisting the wrist.' },
+  ] },
+  'c3.scale': { type: 'piano', title: 'Down the octave', piece: 'joy', skill: 'technique', minutes: 2.5, core: true,
+    howto: 'Practice just phrase 1 (the first line) until the finger crossing feels smooth. Slow is fine.' },
+  'c3.duet': { type: 'piano', title: 'Joy to the World duet', piece: 'joyDuet', skill: 'rhythm', minutes: 3, core: true,
+    howto: 'Melody players: big and joyful! Bass players: C, G, and F, one per bar, steady as a bell.' },
+  'c3.ear': { type: 'ear', title: 'Higher or lower?', skill: 'ear', minutes: 1.5, ear: 'updown', count: 6 },
+  'c3.check': { type: 'checkpoint', title: 'Ticket inspection: Joy to the World', piece: 'joy', skill: 'reading', minutes: 3 },
+
+  // ---- Carol Line: Silent Night Siding ----
+  'c4.lesson': { type: 'lesson', title: 'Silent Night: 3/4 and moving hands', skill: 'reading', minutes: 2, slides: [
+    { text: 'Silent Night is a gentle lullaby in 3: "ONE two three, ONE two three." The long notes last a full three beats. Let them ring.' },
+    { text: 'The melody climbs from G up to D, then higher to F and E near the end. Your hand will move. Look ahead in the music and shift during the long notes.' },
+    { text: 'Play it softly and smoothly. A carol like this is about calm, not speed.' },
+  ] },
+  'c4.silent': { type: 'piano', title: 'Silent Night', piece: 'silent', skill: 'reading', minutes: 4, core: true,
+    howto: 'Learn it phrase by phrase. Phrases 3 and 4 are the same tune ("Round yon virgin" / "Holy infant"), so that is a free one!' },
+  'c4.duet': { type: 'piano', title: 'Silent Night duet', piece: 'silentDuet', skill: 'rhythm', minutes: 4, core: true,
+    howto: 'Bass notes: C, G, and F with the left hand, one per bar, held for three beats. Melody: soft and singing. This is your family Christmas duet!' },
+  'c4.compose': { type: 'improv', title: 'Christmas bells', skill: 'ear', minutes: 2, chords: [[48, 55, 64], [53, 60, 69], [55, 62, 71], [48, 55, 64]], bpm: 70, bars: 8,
+    howto: 'Over gentle chords, play high notes from C D E G A (any octave) slowly, like bells ringing across snow. Let each one ring before the next.' },
+  'c4.check': { type: 'checkpoint', title: 'Ticket inspection: Silent Night', piece: 'silent', skill: 'reading', minutes: 3 },
+
   // ---- Gospel Line: Chapel Hill ----
   'g1.lesson': { type: 'lesson', title: 'Chords: three notes, skip a key', skill: 'theory', minutes: 2, slides: [
     { text: 'A chord is three or more notes played together. The basic chord (a triad) is built by skipping every other white key: play one, skip one, play one, skip one, play one.', kb: { lo: 55, hi: 74, labels: 'all', marks: { 60: 'target', 64: 'target', 67: 'target' } } },
@@ -276,6 +339,37 @@ export const ITEMS = {
   'g2.pulse': { type: 'piano', title: 'Add a pulse', piece: 'fourPulse', skill: 'rhythm', minutes: 3, core: true,
     howto: 'Same chords, now four even quarter-note pulses per bar, like a strummed guitar. Keep the wrist loose and bounce from the elbow. Play softer than you think: the band carries the beat.' },
   'g2.check': { type: 'checkpoint', title: 'Ticket inspection: 1 – 5 – 6m – 4', piece: 'fourChords', skill: 'theory', minutes: 3 },
+
+  // ---- Gospel Line: Key of D Depot ----
+  'g3.lesson': { type: 'lesson', title: 'Same numbers, new key', skill: 'theory', minutes: 2, slides: [
+    { text: 'Worship leaders choose keys that fit the singers: G, D, E, A, and C are the most common. With numbers, the song stays the same: only the letters change.' },
+    { text: 'In D: 1 = D, 4 = G, 5 = A, 6m = Bm. In E: 1 = E, 4 = A, 5 = B, 6m = C♯m. Your hand shapes stay smooth; just start from a new home.', staff: { notes: '[D4,F#4,A4]:4@D_(1) | [C#4,E4,A4]:4@A_(5) | [D4,F#4,B4]:4@Bm_(6m) | [D4,G4,B4]:4@G_(4)', keySig: 2 } },
+    { text: 'On the team, watch the leader. A raised hand with fingers up shows the number of the next chord. You will practice reacting live.' },
+  ] },
+  'g3.d': { type: 'piano', title: '1 – 5 – 6m – 4 in D', piece: 'fourD', skill: 'technique', minutes: 3, core: true,
+    howto: 'D (D F♯ A) → A (C♯ E A) → Bm (D F♯ B) → G (D G B). The top notes barely move. Left hand roots: D, A, B, G.' },
+  'g3.e': { type: 'piano', title: '1 – 5 – 6m – 4 in E', piece: 'fourE', skill: 'technique', minutes: 3, core: true,
+    howto: 'Four sharps, but the same shape idea: E (E G♯ B) → B (D♯ F♯ B) → C♯m (E G♯ C♯) → A (E A C♯).' },
+  'g3.numbers': { type: 'choice', title: 'Number drill in new keys', skill: 'theory', minutes: 2, core: true, quiz: 'nashville', count: 8 },
+  'g3.cues': { type: 'cues', title: 'Follow the leader (key of D)', skill: 'rhythm', minutes: 3, core: true, key: 'D', bpm: 76, style: 'worship', segments: 10,
+    chords: [{ num: '1', name: 'D', root: 'D3' }, { num: '4', name: 'G', root: 'G2' }, { num: '5', name: 'A', root: 'A2' }, { num: '6m', name: 'Bm', root: 'B2', minor: true }] },
+  'g3.check': { type: 'checkpoint', title: 'Ticket inspection: 1 – 5 – 6m – 4 in D', piece: 'fourD', skill: 'theory', minutes: 3 },
+
+  // ---- Gospel Line: Bridge Street ----
+  'g4.lesson': { type: 'lesson', title: 'Sus, add9, and slash chords', skill: 'theory', minutes: 2.5, slides: [
+    { text: 'Sus chords swap the 3rd for the 4th (sus4) or 2nd (sus2). They sound open and unresolved: perfect for worship. Dsus4 = D G A, which resolves to D = D F♯ A.' },
+    { text: 'Anchor notes: keep D and G on top through G, Dsus, Em7, and Cadd9, and move only the bottom note. This is the signature modern worship sound.', staff: { notes: '[B4,D5,G5]:4@G | [A4,D5,G5]:4@Dsus | [B4,D5,G5]:4@Em7 | [C5,D5,G5]:4@Cadd9', keySig: 1 } },
+    { text: 'Slash chords: "G/B" means a G chord with B in the bass. They make walking bass lines: C – G/B – Am – G. Intros often use the 1 and 4; endings hold the 1 (or 4 → 1).' },
+  ] },
+  'g4.sus': { type: 'piano', title: 'Sus chords resolving', piece: 'susRes', skill: 'technique', minutes: 2.5, core: true,
+    howto: 'Dsus4 → D: only one finger moves (G down to F♯). Asus4 → A: D down to C♯. Feel the tension, then the release.' },
+  'g4.anchor': { type: 'piano', title: 'Anchor notes', piece: 'anchor', skill: 'technique', minutes: 3, core: true,
+    howto: 'Fingers 3 and 5 hold D and G on top the whole time. Thumb walks B → A → B → C. Left hand: G, F♯, E, C. Let it ring with the pedal.' },
+  'g4.walk': { type: 'piano', title: 'Walking bass with slash chords', piece: 'walkup', skill: 'theory', minutes: 3, core: true,
+    howto: 'Left hand walks down one step per bar: C B A G F E D, then G. Right hand stays close to middle C. Listen to the bass line sing.' },
+  'g4.cues': { type: 'cues', title: 'Follow the leader (key of G)', skill: 'rhythm', minutes: 3, core: true, key: 'G', bpm: 72, style: 'worship', segments: 12,
+    chords: [{ num: '1', name: 'G', root: 'G2' }, { num: '4', name: 'C', root: 'C3' }, { num: '5', name: 'D', root: 'D3' }, { num: '6m', name: 'Em', root: 'E2', minor: true }, { num: '2m', name: 'Am', root: 'A2', minor: true }] },
+  'g4.check': { type: 'checkpoint', title: 'Ticket inspection: Anchor notes', piece: 'anchor', skill: 'theory', minutes: 3 },
 
   // ---- Conservatory Line: Minuet Station ----
   'k1.lesson': { type: 'lesson', title: '3/4 time, key signatures, hands separate', skill: 'reading', minutes: 2, slides: [
@@ -424,6 +518,18 @@ export const STATIONS = [
     story: 'Snow drifts past the windows. A family of carolers boards with mittens and cocoa. "Can you play with us?" the youngest asks.',
     passenger: 'The caroling family wants a duet they can sing along to.',
     items: ['c1.lesson', 'c1.jingle', 'c1.duet', 'c1.ear', 'c1.ode'], checkpoint: 'c1.check' },
+  { id: 'c2', line: 'carol', name: 'Holly Hall', postcard: 'A great hall hung with holly and candles',
+    story: 'The train pulls into a station decked with holly. In the waiting room, a fire crackles and a choir is warming up. "We need a pianist for the fa-la-las!"',
+    passenger: 'The station choir needs a pianist.',
+    items: ['c2.lesson', 'c2.deck', 'c2.deckDuet', 'c2.king', 'c2.kingDuet'], checkpoint: 'c2.check' },
+  { id: 'c3', line: 'carol', name: 'Joy Junction', postcard: 'A bell tower ringing over a snowy town square',
+    story: 'Bells ring out over the town square. The bell-ringer waves you up the tower: "Eight bells, top to bottom! Can you ring them on the piano?"',
+    passenger: 'The bell-ringer wants to hear Joy to the World.',
+    items: ['c3.lesson', 'c3.scale', 'c3.duet', 'c3.ear'], checkpoint: 'c3.check' },
+  { id: 'c4', line: 'carol', name: 'Silent Night Siding', postcard: 'A quiet siding under falling snow and starlight',
+    story: 'The train rests on a quiet siding. Snow falls; the carriage lamps glow. Conductor Oona whispers: "Everyone is asleep. Something gentle?"',
+    passenger: 'The sleeping carriage would love Silent Night.',
+    items: ['c4.lesson', 'c4.silent', 'c4.duet', 'c4.compose'], checkpoint: 'c4.check' },
   { id: 'g1', line: 'gospel', name: 'Chapel Hill', postcard: 'A small white chapel glowing at dusk',
     story: 'The train stops below a hilltop chapel. The worship leader waves from the steps: "Our keys player is out sick. Know any chords?"',
     passenger: 'The worship leader needs someone to hold down the chords.',
@@ -432,6 +538,14 @@ export const STATIONS = [
     story: 'At the crossing, a band rehearses under a tent. The drummer counts off: "1, 5, 6, 4. Ready?"',
     passenger: 'The band leader calls the chords by number. Can you follow?',
     items: ['g2.lesson', 'g2.numbers', 'g2.four', 'g2.pulse'], checkpoint: 'g2.check' },
+  { id: 'g3', line: 'gospel', name: 'Key of D Depot', postcard: 'A riverside depot with a choir on the platform',
+    story: 'At the depot, a gospel choir is rehearsing. The director laughs: "Our singers need it in D tonight. Same song, new key. Can you follow me?"',
+    passenger: 'The choir director will call the chords by number.',
+    items: ['g3.lesson', 'g3.d', 'g3.e', 'g3.numbers', 'g3.cues'], checkpoint: 'g3.check' },
+  { id: 'g4', line: 'gospel', name: 'Bridge Street', postcard: 'A stone bridge glowing at the edge of a city',
+    story: 'A worship band is sound-checking in a church on Bridge Street. The leader grins: "We need that ringing, open sound. And watch me for the ending."',
+    passenger: 'The worship leader wants the modern worship sound.',
+    items: ['g4.lesson', 'g4.sus', 'g4.anchor', 'g4.walk', 'g4.cues'], checkpoint: 'g4.check' },
   { id: 'k1', line: 'conservatory', name: 'Minuet Station', postcard: 'A marble hall with a gilded harpsichord',
     story: 'The Conservatory Express glides into a station of marble and brass. A dancing master taps his cane in threes.',
     passenger: 'The dancing master needs a minuet for tonight\'s ball.',
@@ -469,6 +583,50 @@ export const STATIONS = [
     passenger: 'The songwriter needs her song brought to life.',
     items: ['p2.lesson', 'p2.lead', 'p2.echo', 'p2.arrange'], checkpoint: 'p2.check' },
 ];
+
+// Carols: solo piece + duet built from it (melody upper; bass notes or chords lower)
+function carolDuet(soloKey, bassStr, chordStr, extra = {}) {
+  const solo = PIECES[soloKey];
+  return { title: solo.title.replace(/ \(.*\)$/, '') + ' duet', credit: (solo.credit || '') + ' · duet arrangement: Night Train', bpm: solo.bpm, beatsPerBar: solo.beatsPerBar, keySig: solo.keySig,
+    range: [40, solo.range[1]], hand: 'RH', phrases: solo.phrases, ...extra,
+    duet: { parts: [
+      { id: 'melody', name: 'Melody (upper)', clef: 'treble', notes: solo.notes },
+      { id: 'bass', name: 'Bass notes (lower, easy)', clef: 'bass', notes: parse(bassStr) },
+      { id: 'chords', name: 'Chords (lower)', clef: 'bass', notes: parse(chordStr) },
+    ] } };
+}
+Object.assign(PIECES, {
+  deck: { title: 'Deck the Halls', credit: 'Traditional Welsh carol (public domain)', bpm: 100, range: [57, 74], hand: 'RH',
+    notes: parse('G4:1.5/5 F4:0.5/4 E4:1/3 D4:1/2 | C4:1/1 D4:1/2 E4:1/3 C4:1/1 | D4:0.5/2 E4:0.5/3 F4:0.5/4 D4:0.5/2 E4:1.5/3 D4:0.5/2 | C4:1/2 B3:1/1 C4:2/2 | '
+      + 'G4:1.5/5 F4:0.5/4 E4:1/3 D4:1/2 | C4:1/1 D4:1/2 E4:1/3 C4:1/1 | D4:0.5/2 E4:0.5/3 F4:0.5/4 D4:0.5/2 E4:1.5/3 D4:0.5/2 | C4:1/2 B3:1/1 C4:2/2 | '
+      + 'D4:1.5/1 E4:0.5/2 F4:1/3 D4:1/1 | E4:1.5/2 F4:0.5/3 G4:1/4 D4:1/1 | E4:0.5/1 F#4:0.5/2 G4:1/3 A4:0.5/4 B4:0.5/5 C5:1/5 | B4:1/4 A4:1/3 G4:2/2 | '
+      + 'G4:1.5/5 F4:0.5/4 E4:1/3 D4:1/2 | C4:1/1 D4:1/2 E4:1/3 C4:1/1 | D4:0.5/2 E4:0.5/3 F4:0.5/4 D4:0.5/2 E4:1.5/3 D4:0.5/2 | C4:1/2 B3:1/1 C4:2/2'),
+    phrases: [[0, 16], [17, 33], [34, 50], [51, 67]] },
+  wenceslas: { title: 'Good King Wenceslas', credit: 'Piae Cantiones, 1582 (public domain)', bpm: 96, range: [52, 69], hand: 'RH',
+    notes: parse('C4:1/3 C4:1/3 C4:1/3 D4:1/4 | C4:1/3 C4:1/3 G3:2/1 | A3:1/2 G3:1/1 A3:1/2 B3:1/3 | C4:2/4 C4:2/4 | '
+      + 'C4:1/3 C4:1/3 C4:1/3 D4:1/4 | C4:1/3 C4:1/3 G3:2/1 | A3:1/2 G3:1/1 A3:1/2 B3:1/3 | C4:2/4 C4:2/4 | '
+      + 'G4:1/5 F4:1/4 E4:1/3 D4:1/2 | E4:1/3 D4:1/2 C4:2/1 | A3:1/2 G3:1/1 A3:1/2 B3:1/3 | C4:2/4 C4:2/4 | '
+      + 'G3:1/1 G3:1/1 A3:1/2 B3:1/3 | C4:1/4 C4:1/4 D4:2/5 | G4:1/5 F4:1/4 E4:1/3 D4:1/2 | C4:2/1 F4:2/4 | C4:4/1'),
+    phrases: [[0, 12], [13, 25], [26, 38], [39, 52]] },
+  joy: { title: 'Joy to the World (opening)', credit: 'Isaac Watts / Lowell Mason, 1839 (public domain)', bpm: 88, range: [57, 74], hand: 'RH',
+    notes: parse('C5:2/5 B4:1.5/4 A4:0.5/3 | G4:3/2 F4:1/1 | E4:2/3 D4:2/2 | C4:3/1 G4:1/1 | A4:3/2 A4:1/2 | B4:3/3 B4:1/3 | C5:3/4 C5:1/4 | C5:1/5 B4:1/4 A4:1/3 G4:1/2 | G4:1.5/2 F4:0.5/1 E4:2/2'),
+    phrases: [[0, 7], [8, 13], [14, 21]] },
+  silent: { title: 'Silent Night', credit: 'Franz Gruber, 1818 (public domain)', beatsPerBar: 3, bpm: 84, range: [57, 79], hand: 'RH',
+    notes: parse('G4:1.5 A4:0.5 G4:1 | E4:3 | G4:1.5 A4:0.5 G4:1 | E4:3 | D5:2 D5:1 | B4:3 | C5:2 C5:1 | G4:3 | '
+      + 'A4:2 A4:1 | C5:1.5 B4:0.5 A4:1 | G4:1.5 A4:0.5 G4:1 | E4:3 | A4:2 A4:1 | C5:1.5 B4:0.5 A4:1 | G4:1.5 A4:0.5 G4:1 | E4:3 | '
+      + 'D5:2 D5:1 | F5:1.5 D5:0.5 B4:1 | C5:3 | E5:3 | C5:1.5 G4:0.5 E4:1 | G4:1.5 F4:0.5 D4:1 | C4:3'),
+    phrases: [[0, 7], [8, 13], [14, 22], [23, 31], [32, 38], [39, 45]] },
+});
+Object.assign(PIECES, {
+  deckDuet: carolDuet('deck', 'C3:4 | C3:4 | G3:4 | C3:4 | C3:4 | C3:4 | G3:4 | C3:4 | G3:4 | C3:4 | D3:4 | G3:4 | C3:4 | C3:4 | G3:4 | C3:4',
+    '[C3,E3,G3]:4@C | [C3,E3,G3]:4 | [B2,D3,G3]:4@G | [C3,E3,G3]:4@C | [C3,E3,G3]:4 | [C3,E3,G3]:4 | [B2,D3,G3]:4@G | [C3,E3,G3]:4@C | [B2,D3,G3]:4@G | [C3,E3,G3]:4@C | [A2,D3,F#3]:4@D | [B2,D3,G3]:4@G | [C3,E3,G3]:4@C | [C3,E3,G3]:4 | [B2,D3,G3]:4@G | [C3,E3,G3]:4@C'),
+  wenceslasDuet: carolDuet('wenceslas', 'C3:4 | C3:4 | F3:4 | C3:4 | C3:4 | C3:4 | F3:4 | C3:4 | G3:4 | C3:4 | F3:4 | C3:4 | G3:4 | G3:4 | G3:4 | C3:4 | C3:4',
+    '[C3,E3,G3]:4@C | [C3,E3,G3]:4 | [C3,F3,A3]:4@F | [C3,E3,G3]:4@C | [C3,E3,G3]:4 | [C3,E3,G3]:4 | [C3,F3,A3]:4@F | [C3,E3,G3]:4@C | [B2,D3,G3]:4@G | [C3,E3,G3]:4@C | [C3,F3,A3]:4@F | [C3,E3,G3]:4@C | [B2,D3,G3]:4@G | [B2,D3,G3]:4 | [B2,D3,G3]:4 | [C3,E3,G3]:4@C | [C3,E3,G3]:4'),
+  joyDuet: carolDuet('joy', 'C3:4 | C3:4 | G3:4 | C3:4 | F3:4 | G3:4 | C3:4 | C3:4 | C3:4',
+    '[C3,E3,G3]:4@C | [C3,E3,G3]:4 | [B2,D3,G3]:4@G | [C3,E3,G3]:4@C | [C3,F3,A3]:4@F | [B2,D3,G3]:4@G | [C3,E3,G3]:4@C | [C3,E3,G3]:4 | [C3,E3,G3]:4'),
+  silentDuet: carolDuet('silent', 'C3:3 | C3:3 | C3:3 | C3:3 | G3:3 | G3:3 | C3:3 | C3:3 | F3:3 | F3:3 | C3:3 | C3:3 | F3:3 | F3:3 | C3:3 | C3:3 | G3:3 | G3:3 | C3:3 | C3:3 | C3:3 | G3:3 | C3:3',
+    '[C3,E3,G3]:3@C | [C3,E3,G3]:3 | [C3,E3,G3]:3 | [C3,E3,G3]:3 | [B2,D3,G3]:3@G | [B2,D3,G3]:3 | [C3,E3,G3]:3@C | [C3,E3,G3]:3 | [C3,F3,A3]:3@F | [C3,F3,A3]:3 | [C3,E3,G3]:3@C | [C3,E3,G3]:3 | [C3,F3,A3]:3@F | [C3,F3,A3]:3 | [C3,E3,G3]:3@C | [C3,E3,G3]:3 | [B2,D3,G3]:3@G | [B2,D3,G3]:3 | [C3,E3,G3]:3@C | [C3,E3,G3]:3 | [C3,E3,G3]:3 | [B2,D3,G3]:3@G | [C3,E3,G3]:3@C'),
+});
 
 PIECES.jingleDuet.duet.parts[0].notes = PIECES.jingle.notes;
 PIECES.odeDuet.duet.parts[0].notes = PIECES.odeToJoy.notes;

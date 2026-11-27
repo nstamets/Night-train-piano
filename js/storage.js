@@ -2,7 +2,7 @@
 // Primary: IndexedDB. Mirror: localStorage (second copy). Plus backup codes and file export.
 // Every player record carries a schema version; migrate() upgrades old records safely.
 
-export const APP_VERSION = '0.3.0';
+export const APP_VERSION = '0.4.0';
 export const SCHEMA_VERSION = 2;
 
 const DB_NAME = 'nighttrain';

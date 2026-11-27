@@ -1,11 +1,12 @@
 // Renderers for each kind of practice block. Each mount() returns a cleanup function.
 // ctx: { player, done(result), save(), toast(msg), openMicCheck(opts) }
-import { ITEMS, PIECES, POSTURE, TIPS, TEMPO_LADDER, READING_LEVELS, parse, CHORD_SPELL, KEYS_NASHVILLE } from './content.js';
+import { ITEMS, PIECES, POSTURE, TIPS, TEMPO_LADDER, READING_LEVELS, parse, CHORD_SPELL, KEYS_NASHVILLE, toMidi } from './content.js';
 import { midiConnected, listenMIDI } from './midi.js';
 import { recSupported, startRec, stopRec, shareTake, recording } from './recorder.js';
+import { generateSight, SIGHT_LEVELS } from './sight.js';
 import { judge } from './pitch.js';
 import { renderStaff, renderScore, renderKeyboard, bindKeyboard, fallingNotes, letterOf } from './notation.js';
-import { playNote, schedulePlayback, audio, pad, click, unlockAudio, setBackingVolume, makeRoute } from './audio.js';
+import { playNote, schedulePlayback, audio, pad, click, unlockAudio, setBackingVolume, makeRoute, scheduleBand } from './audio.js';
 import { recordRating, ratingFromScore, itemState, hardestPhrase, milesFor, shuffle, paceFast } from './engine.js';
 
 const $ = (el, sel) => el.querySelector(sel);
@@ -28,6 +29,8 @@ export function mountBlock(el, block, ctx) {
     case 'chordquiz': return mountChordQuiz(el, it, block, ctx);
     case 'choice': return mountChoice(el, it, block, ctx);
     case 'echo': return mountEcho(el, it, block, ctx);
+    case 'cues': return mountCues(el, it, block, ctx);
+    case 'sight': return mountSight(el, it, block, ctx);
     default: el.innerHTML = '<p>Unknown block</p>'; return () => {};
   }
 }
@@ -694,6 +697,110 @@ function mountChoice(el, it, block, ctx) {
   };
   render();
   return () => { el.onclick = null; };
+}
+
+// ---------- Sight-reading ----------
+// Fresh music every time. Look first, then play once without hearing it, then compare.
+function mountSight(el, it, block, ctx) {
+  const p = ctx.player;
+  p.sight = p.sight || { level: p.readsTreble ? 3 : 1, streak: 0, misses: 0 };
+  let n = 0, results = [], piece = null, timer = null, ctl = null;
+  const newPiece = () => { piece = generateSight(p.sight.level); PIECES['sight:cur'] = piece; };
+  const render = () => {
+    const L = SIGHT_LEVELS[p.sight.level];
+    el.innerHTML = `${header(it, `${L.name}: ${esc(L.desc)} · ${n + 1} of ${it.count}`)}
+      <p class="lesson-text small">Look before you play: the key signature, the time signature, the rhythm, the highest and lowest notes. Then play it once, steadily, without stopping, even if you miss a note.</p>
+      <div class="staffwrap">${renderScore([{ notes: piece.notes, clef: 'treble' }], { beatsPerBar: piece.beatsPerBar, keySig: piece.keySig, barsPerLine: barsPerLine(), letters: p.sight.level === 1 && (p.readingLevel ?? 0) <= 1 })}</div>
+      <div class="count" aria-live="polite">Study it: <span data-cd>20</span>s</div>
+      <div class="row"><button class="btn primary" data-mic>🎤 Play it for the conductor</button><button class="btn" data-clicks>Count-in only</button></div>
+      <p class="muted small">Or rate yourself after playing:</p>${rateRow()}
+      <p class="fb" aria-live="polite"></p>
+      <div class="row"><button class="btn ghost" data-hear>▶ Hear it (after you play)</button></div>`;
+    let left = 20; clearInterval(timer);
+    timer = setInterval(() => { left--; const cd = $(el, '[data-cd]'); if (cd) cd.textContent = Math.max(0, left); if (left <= 0) { clearInterval(timer); const c = $(el, '.count'); if (c) c.textContent = 'Ready when you are.'; } }, 1000);
+  };
+  const rate = (rating) => {
+    clearInterval(timer); ctl && ctl.stop();
+    results.push(rating);
+    const S0 = p.sight;
+    if (rating === 'clean') { S0.streak++; S0.misses = 0; if (S0.streak >= 3 && S0.level < 4) { S0.level++; S0.streak = 0; ctx.toast(`📖 Sight-reading ${SIGHT_LEVELS[S0.level].name} unlocked!`); } }
+    else if (rating === 'notyet') { S0.streak = 0; S0.misses++; if (S0.misses >= 2 && S0.level > 1) { S0.level--; S0.misses = 0; } }
+    else S0.streak = 0;
+    recordRating(p, block.id, rating); ctx.save();
+    $(el, '.fb').innerHTML = rating === 'clean' ? '<span class="ok">✓ Read it cleanly!</span>' : rating === 'nearly' ? '<span class="ok">Nearly.</span> Tap ▶ Hear it to compare.' : '<span class="no">Tough one.</span> Hear it, then try the next.';
+    el.querySelectorAll('[data-rate],[data-mic]').forEach(b => { b.disabled = true; });
+    const next = document.createElement('button'); next.className = 'btn primary big'; next.textContent = n + 1 >= it.count ? 'Finish' : 'Next piece ›';
+    next.onclick = () => { n++; if (n >= it.count) finish(); else { newPiece(); render(); } };
+    $(el, '.fb').after(next);
+  };
+  const finish = () => {
+    const order = { clean: 2, nearly: 1, notyet: 0 };
+    const avg = results.reduce((s, r) => s + order[r], 0) / Math.max(1, results.length);
+    const rating = avg >= 1.6 ? 'clean' : avg >= 0.8 ? 'nearly' : 'notyet';
+    ctx.done({ rating, miles: results.reduce((s, r) => s + milesFor(r), 0), skill: 'reading', xp: 4 + results.length * 3, summary: `${SIGHT_LEVELS[p.sight.level].name} · ${results.filter(r => r === 'clean').length} of ${results.length} clean` });
+  };
+  el.onclick = async e => {
+    if (e.target.closest('[data-mic]')) { clearInterval(timer); ctx.openMicCheck({ pieceId: 'sight:cur', quick: true, onResult: r => { if (r && r.verdict !== 'unclear') rate(r.verdict); } }); }
+    if (e.target.closest('[data-clicks]')) { await unlockAudio(); ctl && ctl.stop(); ctl = schedulePlayback({ events: piece.notes, bpm: piece.bpm, beatsPerBar: piece.beatsPerBar, countIn: 1, metronome: true, playNotes: false }); }
+    if (e.target.closest('[data-hear]')) { await unlockAudio(); ctl && ctl.stop(); ctl = schedulePlayback({ events: piece.notes, bpm: piece.bpm, beatsPerBar: piece.beatsPerBar, countIn: 0, metronome: false, playNotes: true }); }
+    const r = e.target.closest('[data-rate]'); if (r && !r.disabled) rate(r.dataset.rate);
+  };
+  newPiece(); render();
+  return () => { clearInterval(timer); ctl && ctl.stop(); el.onclick = null; };
+}
+
+// ---------- Follow the leader (live chord cues over a band) ----------
+// The band plays; every two bars the "leader" calls the next chord one bar ahead, like a worship leader would.
+function mountCues(el, it, block, ctx) {
+  const p = ctx.player;
+  let route = null, timers = [], running = false;
+  const CALLS = ['To the {n}!', 'Go to {n}', '{n} chord!', 'Next: {n}'];
+  el.innerHTML = `${header(it, 'Play along and follow the calls')}
+    <p class="lesson-text small">The band starts on the 1. Every two bars the leader calls the next chord a bar early. Switch right on beat 1. Hold the chord (or pulse it) with the band.</p>
+    <div class="cuebox" aria-live="assertive"><div class="cue-now">Ready</div><div class="cue-name">&nbsp;</div><div class="cue-next">&nbsp;</div><div class="cue-beat">&nbsp;</div></div>
+    <div class="row"><button class="btn primary big" data-go>▶ Start the band</button><button class="btn" data-stop>■ Stop</button></div>
+    ${volSlider(p)}
+    <div class="cue-key muted small">Key of ${esc(it.key)}: ${it.chords.map(c => `<strong>${esc(c.num)}</strong> = ${esc(c.name)}`).join(' · ')}</div>
+    <div class="after" hidden><p class="muted small">How did you follow?</p>${rateRow()}</div>`;
+  bindVol(el, ctx);
+  const box = { now: $(el, '.cue-now'), name: $(el, '.cue-name'), next: $(el, '.cue-next'), beat: $(el, '.cue-beat') };
+  const stopAll = () => { running = false; route && route.stop(); route = null; timers.forEach(clearTimeout); timers = []; };
+  const start = async () => {
+    await unlockAudio(); stopAll(); running = true; $(el, '.after').hidden = true;
+    const c = audio(); const spb = 60 / it.bpm; const t0 = c.currentTime + 0.3; route = makeRoute();
+    // count-in
+    route.run(() => { for (let k = 0; k < 4; k++) click(t0 + k * spb, k === 0); });
+    const at = (t, fn) => timers.push(setTimeout(() => running && fn(), Math.max(0, (t - c.currentTime) * 1000)));
+    at(t0, () => { box.now.textContent = 'Count-in…'; box.name.textContent = ''; box.next.textContent = ''; });
+    const start1 = t0 + 4 * spb;
+    let cur = it.chords[0];
+    const plan = [cur];
+    for (let i = 1; i < it.segments; i++) {
+      if (i === it.segments - 1) { plan.push(it.chords[0]); break; }
+      const opts = it.chords.filter(ch => ch !== plan[plan.length - 1]);
+      plan.push(Math.random() < 0.15 ? plan[plan.length - 1] : opts[Math.floor(Math.random() * opts.length)]);
+    }
+    plan.forEach((ch, i) => {
+      const segStart = start1 + i * 8 * spb;
+      const root = toMidi(ch.root);
+      route.run(() => scheduleBand([{ beat: 0, dur: 8, root, minor: !!ch.minor }], { start: segStart, spb, style: it.style, beatsPerBar: 4, lengthBeats: i === plan.length - 1 ? 4 : 8 }));
+      at(segStart, () => { box.now.textContent = ch.num; box.name.textContent = ch.name; box.next.textContent = i === plan.length - 1 ? 'Hold it… and end.' : ''; box.now.parentElement.classList.add('flash'); setTimeout(() => box.now.parentElement.classList.remove('flash'), 300); });
+      for (let b = 0; b < 8; b++) at(segStart + b * spb, () => { box.beat.textContent = `bar ${Math.floor(b / 4) + 1} · beat ${(b % 4) + 1}`; });
+      const nx = plan[i + 1];
+      if (nx) at(segStart + 4 * spb, () => {
+        const last = i + 1 === plan.length - 1;
+        box.next.textContent = last ? 'Last time… end on 1!' : nx === ch ? 'Again!' : CALLS[Math.floor(Math.random() * CALLS.length)].replace('{n}', nx.num);
+      });
+    });
+    at(start1 + ((plan.length - 1) * 8 + 4) * spb + 0.5, () => { running = false; box.now.textContent = '✓'; box.name.textContent = 'Nice playing!'; box.next.textContent = ''; box.beat.textContent = ''; $(el, '.after').hidden = false; });
+  };
+  el.onclick = e => {
+    if (e.target.closest('[data-go]')) start();
+    if (e.target.closest('[data-stop]')) { stopAll(); box.now.textContent = 'Stopped'; $(el, '.after').hidden = false; }
+    const r = e.target.closest('[data-rate]');
+    if (r) { stopAll(); const rating = r.dataset.rate; recordRating(p, block.id, rating); ctx.done({ rating, miles: milesFor(rating) + 4, skill: it.skill, xp: 7, summary: 'Followed the leader' }); }
+  };
+  return () => { stopAll(); el.onclick = null; };
 }
 
 // ---------- Play it by ear (echo) ----------

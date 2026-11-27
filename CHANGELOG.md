@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.4.0 — 2026-11-27
+- Carol Line: three new stations with solo and family-duet versions:
+  - **Holly Hall:** Deck the Halls, Good King Wenceslas
+  - **Joy Junction:** Joy to the World, with finger crossing
+  - **Silent Night Siding:** Silent Night, in 3/4
+- Gospel Line: two new stations:
+  - **Key of D Depot:** D and E keys, transposing
+  - **Bridge Street:** sus/add9/slash chords, anchor notes, walking bass
+- **Follow the Leader:** the band plays while live number cues call the chord changes.
+- **My Own Song:** type a chord chart (names or Nashville numbers). The app builds smooth voicings, a bass line and a band, playable in any key. Chords only.
+- **Sight-reading:** endlessly generated exercises at four levels that adapt as you read cleanly. Added to sessions once a player reads.
+- **Family board** on the player screen, with a rotating weekly family challenge.
+- **Settings → Microphone report:** a log of every mic and keyboard check, with a shareable summary.
+- **Settings → About:** shows the version, with a "Check for update" button.
+
 ## 0.3.0 — 2026-11-25
 - Fix: Stop now silences playback, band and backing tracks instantly.
 - Record a take on any piece, play it back, compare it with the target ("Target, then me"), and save or share it as a recital.

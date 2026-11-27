@@ -1,9 +1,10 @@
 // Night Train: app shell, screens, and flow.
 import * as store from './storage.js';
 import { THEMES, LINES, STATIONS, ITEMS, PIECES, READING_LEVELS, parse } from './content.js';
-import { buildSession, stationStatus, stationProgress, currentStation, passStation, stationReady, sessionsThisWeek, addSkill, skillLevel, recordRating } from './engine.js';
+import { buildSession, stationStatus, stationProgress, currentStation, passStation, stationReady, sessionsThisWeek, addSkill, skillLevel, recordRating, weekStart } from './engine.js';
 import { mountBlock, pieceScore, judgedNotes, pieceView } from './blocks.js';
 import { initMIDI, midiConnected, midiSupported, listenMIDI, midiName } from './midi.js';
+import { buildSongPiece, KEYS, parseChart, displayName, numberOf } from './songs.js';
 import { renderStaff, renderScore, renderKeyboard, bindKeyboard, letterOf } from './notation.js';
 import { unlockAudio, playNote, click, audio, setBackingVolume } from './audio.js';
 import { micSupported, openMic, closeMic, listen, measureNoise, judge, noteName } from './pitch.js';
@@ -57,7 +58,7 @@ function go(view, arg) {
   cleanup();
   S.view = view;
   window.scrollTo(0, 0);
-  const views = { duet: viewDuet, players: viewPlayers, onboard: viewOnboard, home: viewHome, station: viewStation, session: viewSession, item: viewItem, backup: viewBackup, settings: viewSettings, summary: viewSummary, restore: viewRestore };
+  const views = { songs: viewSongs, songedit: viewSongEdit, song: viewSong, duet: viewDuet, players: viewPlayers, onboard: viewOnboard, home: viewHome, station: viewStation, session: viewSession, item: viewItem, backup: viewBackup, settings: viewSettings, summary: viewSummary, restore: viewRestore };
   (views[view] || viewPlayers)(arg);
 }
 
@@ -93,10 +94,12 @@ function viewPlayers() {
     <h2 class="sec">Who's practicing?</h2>
     <div class="players">${list.map(x => `<button class="pcard th-${esc(x.theme)}" data-pid="${esc(x.id)}"><span class="av big">${esc(x.name[0].toUpperCase())}</span><span>${esc(x.name)}</span></button>`).join('')}
       <button class="pcard add" data-add><span class="av big">+</span><span>Add player</span></button></div>
+    <div class="board" aria-live="polite"></div>
     <div class="row center"><button class="btn ghost" data-nav="restore">Restore from a backup</button></div>
     <p class="muted small center">v${store.APP_VERSION}</p>
   </main>`;
   app.querySelectorAll('[data-pid]').forEach(b => b.onclick = () => selectPlayer(b.dataset.pid));
+  renderBoard(list);
   $('[data-add]').onclick = async () => {
     const name = (prompt('Player name?') || '').trim();
     if (!name) return;
@@ -105,6 +108,28 @@ function viewPlayers() {
     await store.savePlayer(p); await store.saveMeta(S.meta);
     S.player = p; S.ob = null; go('onboard');
   };
+}
+
+// ---------- Family board ----------
+const CHALLENGES = [
+  { title: 'Miles together', desc: 'Travel {t} miles as a family this week.', target: ps => 80 * ps.length, value: (ps, ws) => ps.reduce((a, p) => a + p.sessions.filter(x => x.date >= ws).reduce((b, x) => b + (x.miles || 0), 0), 0) },
+  { title: 'Everyone on board', desc: 'Every player reaches their own weekly goal.', target: ps => ps.length, value: (ps) => ps.filter(p => sessionsThisWeek(p) >= p.weeklyGoal).length },
+  { title: 'Duet week', desc: 'Play {t} family duets this week (each phone counts).', target: () => 4, value: (ps, ws) => ps.reduce((a, p) => a + (p.duetLog || []).filter(t => t >= ws).length, 0) },
+  { title: 'Stamp collectors', desc: 'Earn {t} new ticket stamps as a family.', target: ps => Math.max(2, ps.length), value: (ps, ws) => ps.reduce((a, p) => a + Object.values(p.stations).filter(r => r.status === 'passed' && (r.at || 0) >= ws).length, 0) },
+];
+async function renderBoard(list) {
+  const el = document.querySelector('.board'); if (!el || !list.length) return;
+  const ps = (await Promise.all(list.map(x => store.loadPlayer(x.id)))).filter(Boolean);
+  if (!ps.length || !document.body.contains(el)) return;
+  const ws = weekStart(); const wk = Math.floor(ws / (7 * DAY));
+  const ch = CHALLENGES[((wk % CHALLENGES.length) + CHALLENGES.length) % CHALLENGES.length];
+  const target = ch.target(ps), value = Math.min(target, ch.value(ps, ws));
+  el.innerHTML = `<h2 class="sec">Family board</h2>
+    <section class="card"><p class="eyebrow">This week's challenge</p><strong>${esc(ch.title)}</strong><p class="small">${esc(ch.desc.replace('{t}', target))}</p>
+      <div class="bar" role="progressbar" aria-valuenow="${value}" aria-valuemax="${target}"><span style="width:${Math.round(value / target * 100)}%"></span></div>
+      <p class="muted small">${value} of ${target}${value >= target ? ' · 🎉 Done! The whole train cheers.' : ''}</p></section>
+    <section class="card"><ul class="boardlist">${ps.map(p => { const w = sessionsThisWeek(p); const stamps = Object.values(p.stations).filter(r => r.status === 'passed').length;
+      return `<li><span class="av th-${esc(p.theme)}"><b>${esc(p.name[0].toUpperCase())}</b></span><span class="bn"><strong>${esc(p.name)}</strong><small>${w}/${p.weeklyGoal} this week${w >= p.weeklyGoal ? ' ✓' : ''}</small></span><span class="bs">🎫 ${stamps}<br><small>${p.miles} mi</small></span></li>`; }).join('')}</ul></section>`;
 }
 
 // ---------- Restore ----------
@@ -256,6 +281,10 @@ function viewHome() {
     <section class="card week"><div><strong>This week</strong> <span class="muted">${wk} of ${goal} sessions</span></div><div class="ring" aria-hidden="true">${ring}</div>
       <p class="muted small">${wk >= goal ? 'Weekly goal reached! Anything more is a bonus.' : 'Any days you like. No streak to break.'}</p></section>
     ${routeHtml(p)}
+    <section class="card duetcard"><strong>📖 Sight-reading</strong><p class="muted small">Fresh music every time, at your level${p.sight ? ` (Level ${p.sight.level})` : ''}. It levels up as you read cleanly.</p>
+      <button class="btn" data-sight>Read something new</button></section>
+    <section class="card duetcard"><strong>🎵 My songs</strong><p class="muted small">Type a chord chart from a song you play (chord names or numbers). The app builds voicings, a band, and practice in any key.</p>
+      <button class="btn" data-nav="songs">${(p.songs || []).length ? `Open my songs (${p.songs.length})` : 'Add a song'}</button></section>
     <section class="card duetcard"><strong>🎹 Family duet</strong><p class="muted small">Two players, one piano, two phones. Or play a duet with the virtual partner anytime from the Carol Line.</p>
       <button class="btn" data-nav="duet">Start a family duet</button></section>
     <h2 class="sec">Skill map</h2>
@@ -269,6 +298,7 @@ function viewHome() {
   </main>`;
   app.querySelectorAll('[data-min]').forEach(b => b.onclick = async () => { p.sessionMinutes = +b.dataset.min; await save(); viewHome(); });
   $('[data-startsession]').onclick = () => { unlockAudio(); startSession(); };
+  $('[data-sight]').onclick = () => { unlockAudio(); go('item', { id: 'x.sight', station: null }); };
   const to = $('[data-testout]'); if (to) to.onclick = () => { unlockAudio(); const sx = STATIONS.find(x => x.id === to.dataset.testout); go('item', { id: sx.checkpoint, station: sx.id }); };
 }
 
@@ -306,8 +336,9 @@ function viewStation(id) {
 
 function viewItem({ id, station }) {
   const p = S.player;
-  app.innerHTML = `${topbar('Practice')}<main class="wrap"><button class="btn ghost back" data-back>‹ ${esc(STATIONS.find(s => s.id === station).name)}</button><div class="block"></div></main>`;
-  $('[data-back]').onclick = () => go('station', station);
+  const stObj = STATIONS.find(s => s.id === station);
+  app.innerHTML = `${topbar('Practice')}<main class="wrap"><button class="btn ghost back" data-back>‹ ${esc(stObj ? stObj.name : 'Train')}</button><div class="block"></div></main>`;
+  $('[data-back]').onclick = () => stObj ? go('station', station) : go('home');
   const el = $('.block');
   const block = { kind: 'free', id, label: 'Practice' };
   const stop = mountBlock(el, block, blockCtx(async res => {
@@ -315,7 +346,7 @@ function viewItem({ id, station }) {
     if (res.checkpoint) { await handleCheckpoint(res, ITEMS[id], station); return; }
     await save();
     toast(`+${res.miles || 0} miles`);
-    go('station', station);
+    stObj ? go('station', station) : go('home');
   }));
   S.cleanup.push(stop);
   void p;
@@ -541,6 +572,8 @@ function openMicCheck({ pieceId, onResult, quick = false, audition = false }) {
     const finish = () => {
       listener && listener.stop(); listener = null;
       const r = judge(target, heard);
+      p.micLog = (p.micLog || []).concat([{ at: Date.now(), piece: piece.title, v: r.verdict, ps: Math.round(r.pitchScore * 100), rs: r.rhythmScore === null ? null : Math.round(r.rhythmScore * 100), heard: heard.length, n: target.length, chords, via: viaMidi ? 'keyboard' : 'mic', bpm: Math.round(r.tempo || 0) }]).slice(-80);
+      save();
       showResult(r);
     };
     doneBtn.onclick = finish;
@@ -728,8 +761,68 @@ async function runDuet(isHost) {
 async function duetReward(v) {
   const p = S.player;
   p.miles += v === 'clean' ? 20 : v === 'nearly' ? 14 : 8; addSkill(p, 'rhythm', 6);
-  p.duets = (p.duets || 0) + 1;
+  p.duets = (p.duets || 0) + 1; p.duetLog = (p.duetLog || []).concat([Date.now()]).slice(-100);
   await save(); toast(`+${v === 'clean' ? 20 : v === 'nearly' ? 14 : 8} miles · duet #${p.duets}`);
+}
+
+// ---------- My Own Song ----------
+function viewSongs() {
+  const p = S.player; const list = p.songs || [];
+  app.innerHTML = `${topbar('My songs')}<main class="wrap"><button class="btn ghost back" data-nav="home">‹ Train</button>
+    <p class="muted small">Chords only: type the chord chart, not the lyrics or melody. Great for songs from church or the radio.</p>
+    <ul class="items">${list.map(sg => `<li><button class="item" data-song="${esc(sg.id)}"><span>${esc(sg.title)}</span><small>Key of ${esc(sg.key)}</small></button></li>`).join('') || '<li class="muted">No songs yet.</li>'}</ul>
+    <button class="btn primary big" data-new>+ New song</button></main>`;
+  app.querySelectorAll('[data-song]').forEach(b => b.onclick = () => go('song', b.dataset.song));
+  $('[data-new]').onclick = () => go('songedit', null);
+}
+function viewSongEdit(id) {
+  const p = S.player; p.songs = p.songs || [];
+  const sg = p.songs.find(x => x.id === id) || { id: null, title: '', key: 'G', chart: '', bpm: 72, style: 'worship', rhythm: 'hold' };
+  app.innerHTML = `${topbar(sg.id ? 'Edit song' : 'New song')}<main class="wrap"><button class="btn ghost back" data-nav="songs">‹ My songs</button>
+    <label class="field">Title<input type="text" data-t maxlength="60" value="${esc(sg.title)}" placeholder="e.g. Sunday opener"></label>
+    <label class="field">Key<select data-k>${KEYS.map(k => `<option ${k === sg.key ? 'selected' : ''}>${k}</option>`).join('')}</select></label>
+    <label class="field">Chord chart (one chord per bar)
+      <textarea data-c rows="5" placeholder="G D Em C | G D/F# C G&#10;or numbers: 1 5 6m 4 | 1 5/7 4 1">${esc(sg.chart)}</textarea></label>
+    <p class="muted small">Tips: "C:2 G:2" = two chords in one bar · "-" = hold the last chord another bar · sus4, sus2, add9, m7, maj7, 7, slash chords (G/B) all work.</p>
+    <p class="fb" aria-live="polite"></p>
+    <label class="field">Tempo: <strong data-bv>${sg.bpm}</strong> bpm<input type="range" min="50" max="140" value="${sg.bpm}" data-b></label>
+    <p>Band style</p><div class="seg">${[['worship', 'Worship'], ['pop', 'Pop'], ['pad', 'Pad only']].map(([v, l]) => `<button class="${sg.style === v ? 'on' : ''}" data-style="${v}">${l}</button>`).join('')}</div>
+    <p>Right-hand rhythm</p><div class="seg">${[['hold', 'Hold'], ['pulse', 'Quarter pulse'], ['332', '3 + 3 + 2']].map(([v, l]) => `<button class="${sg.rhythm === v ? 'on' : ''}" data-rhythm="${v}">${l}</button>`).join('')}</div>
+    <button class="btn primary big" data-save>Save and practice</button>
+    ${sg.id ? '<button class="btn ghost" data-del>Delete song</button>' : ''}</main>`;
+  const check = () => { const r = parseChart($('[data-c]').value, $('[data-k]').value); $('.fb').innerHTML = r.bad.length ? `<span class="no">Not understood: ${esc(r.bad.join(', '))}</span>` : r.bars.length ? `<span class="ok">✓ ${r.bars.length} bars: ${r.bars.slice(0, 8).map(b => esc(displayName(b, $('[data-k]').value))).join(' ')}${r.bars.length > 8 ? ' …' : ''}</span>` : ''; return r; };
+  $('[data-c]').oninput = check; $('[data-k]').onchange = check; check();
+  $('[data-b]').oninput = e => { $('[data-bv]').textContent = e.target.value; };
+  app.querySelectorAll('[data-style]').forEach(b => b.onclick = () => { sg.style = b.dataset.style; app.querySelectorAll('[data-style]').forEach(x => x.classList.toggle('on', x === b)); });
+  app.querySelectorAll('[data-rhythm]').forEach(b => b.onclick = () => { sg.rhythm = b.dataset.rhythm; app.querySelectorAll('[data-rhythm]').forEach(x => x.classList.toggle('on', x === b)); });
+  $('[data-save]').onclick = async () => {
+    const r = check();
+    if (!r.bars.length) { $('.fb').innerHTML = '<span class="no">Type at least one chord.</span>'; return; }
+    Object.assign(sg, { title: $('[data-t]').value.trim() || 'My song', key: $('[data-k]').value, chart: $('[data-c]').value.trim(), bpm: +$('[data-b]').value, transpose: 0 });
+    if (!sg.id) { sg.id = 's' + Date.now().toString(36); p.songs.push(sg); }
+    await save(); go('song', sg.id);
+  };
+  const d = $('[data-del]'); if (d) d.onclick = async () => { if (!confirm(`Delete "${sg.title}"?`)) return; p.songs = p.songs.filter(x => x.id !== sg.id); await save(); go('songs'); };
+}
+function viewSong(id) {
+  const p = S.player; const sg = (p.songs || []).find(x => x.id === id); if (!sg) return go('songs');
+  const built = buildSongPiece(sg);
+  const pid = 'song:' + sg.id;
+  PIECES[pid] = built.piece;
+  ITEMS[pid] = { type: 'piano', title: sg.title, piece: pid, skill: 'technique', minutes: 3,
+    howto: 'Right hand: smooth chord voicings (the app chose the closest shapes). Left hand: the bass note. Start with the band and right hand only, then add the left hand.' };
+  const { bars } = parseChart(sg.chart, sg.key);
+  const nums = bars.map(b => numberOf(b, sg.key));
+  app.innerHTML = `${topbar(sg.title)}<main class="wrap"><button class="btn ghost back" data-nav="songs">‹ My songs</button>
+    <div class="card"><div class="row"><label class="field" style="flex:1">Play in key<select data-tk>${KEYS.map(k => `<option ${k === built.key ? 'selected' : ''}>${k}</option>`).join('')}</select></label>
+      <button class="btn sm ghost" data-edit>Edit chart</button></div>
+      <p class="small"><strong>Numbers:</strong> ${nums.map(esc).join(' · ')}</p></div>
+    <div class="block"></div></main>`;
+  $('[data-tk]').onchange = async e => { sg.transpose = (KEYS.indexOf(e.target.value) - KEYS.indexOf(sg.key) + 12) % 12; await save(); viewSong(id); };
+  $('[data-edit]').onclick = () => go('songedit', sg.id);
+  const block = { kind: 'free', id: pid, label: 'My song' };
+  const stop = mountBlock($('.block'), block, blockCtx(async res => { applyResult(res, block); await save(); toast(`+${res.miles || 0} miles`); go('songs'); }));
+  S.cleanup.push(stop);
 }
 
 // ---------- Backup ----------
@@ -772,6 +865,30 @@ function viewBackup() {
   };
 }
 
+// ---------- Mic report ----------
+function micStats(p) {
+  const log = p.micLog || [];
+  const by = v => log.filter(x => x.v === v).length;
+  const ch = log.filter(x => x.chords), single = log.filter(x => !x.chords);
+  const okRate = a => a.length ? Math.round(a.filter(x => x.v === 'clean' || x.v === 'nearly').length / a.length * 100) : null;
+  return { n: log.length, clean: by('clean'), nearly: by('nearly'), notyet: by('notyet'), unclear: by('unclear'), chords: ch.length, chordOk: okRate(ch), singleOk: okRate(single), log };
+}
+function micReportHtml(p) {
+  const s0 = micStats(p);
+  if (!s0.n) return '<p class="muted small">No mic or keyboard checks yet. Every ticket inspection and quick listen will be logged here.</p>';
+  const when = t => new Date(t).toLocaleDateString([], { month: 'short', day: 'numeric' });
+  return `<p class="small">${s0.n} check${s0.n === 1 ? '' : 's'}: ✓ ${s0.clean} clean · ≈ ${s0.nearly} nearly · ↻ ${s0.notyet} not yet · 🤔 ${s0.unclear} couldn't hear</p>
+    <p class="small">Single-note pieces passed: ${s0.singleOk === null ? 'none yet' : s0.singleOk + '%'} · Chord pieces passed: ${s0.chordOk === null ? 'none yet' : s0.chordOk + '%'}${s0.unclear / s0.n > 0.25 ? ' · <strong>Lots of "couldn\'t hear": try the phone closer or redo mic setup.</strong>' : ''}</p>
+    <ul class="miclog">${s0.log.slice(-8).reverse().map(x => `<li><span>${when(x.at)} · ${esc(x.piece)}${x.chords ? ' (chords)' : ''}</span><small>${{ clean: '✓', nearly: '≈', notyet: '↻', unclear: '🤔' }[x.v]} notes ${x.ps}% · rhythm ${x.rs ?? '–'}% · heard ${x.heard}/${x.n}${x.via === 'keyboard' ? ' · 🎹' : ''}</small></li>`).join('')}</ul>`;
+}
+function micReportText(p) {
+  const s0 = micStats(p);
+  const lines = [`Night Train mic report for ${p.name} (v${store.APP_VERSION})`, `${s0.n} checks: ${s0.clean} clean, ${s0.nearly} nearly, ${s0.notyet} not yet, ${s0.unclear} couldn't hear`,
+    `Single notes passed: ${s0.singleOk ?? '-'}%  Chords passed: ${s0.chordOk ?? '-'}%`, `Calibration: ${p.calibration ? `noise ${p.calibration.noiseFloor.toFixed(4)}, tuning ${Math.round(p.calibration.centsOffset)} cents, heard C ${p.calibration.cHeard}/3` : 'not set up'}`, ''];
+  s0.log.slice(-30).forEach(x => lines.push(`${new Date(x.at).toLocaleString()} | ${x.piece}${x.chords ? ' [chords]' : ''} | ${x.v} | notes ${x.ps}% rhythm ${x.rs ?? '-'}% | heard ${x.heard}/${x.n} | ${x.via}${x.bpm ? ' | ~' + x.bpm + ' bpm' : ''}`));
+  return lines.join('\n');
+}
+
 // ---------- Settings ----------
 function viewSettings() {
   const p = S.player;
@@ -789,6 +906,10 @@ function viewSettings() {
       : '<p class="muted small">Not available in this browser. MIDI works on the MacBook in Chrome or Edge with a USB cable (not on iPhone, iPad, or Safari). The microphone works everywhere.</p>'}</section>
     <section class="card"><h2>Placement</h2><p class="muted small">Placed too low or too high? Retake the placement questions. Your progress is kept.</p><button class="btn" data-retake>Retake placement</button></section>
     <section class="card"><h2>Microphone</h2><p class="muted small">${p.calibration ? `Set up ${ago(p.calibration.at)}.` : 'Not set up yet. It will set up at your first ticket inspection.'}</p><button class="btn" data-recal>Redo listening setup</button></section>
+    <section class="card"><h2>Microphone report</h2>${micReportHtml(p)}
+      <div class="row"><button class="btn sm" data-micshare>Share report</button></div></section>
+    <section class="card"><h2>About</h2><p>Night Train <strong>v${store.APP_VERSION}</strong></p>
+      <button class="btn sm" data-upd>Check for update</button> <span class="muted small" data-updmsg></span></section>
     <section class="card danger"><h2>Remove player</h2><p class="muted small">This deletes ${esc(p.name)}'s progress from this device. Make a backup first.</p><button class="btn" data-del>Remove ${esc(p.name)}…</button></section>
   </main>`;
   $('[data-name]').onchange = async e => { const v = e.target.value.trim(); if (v) { p.name = v.slice(0, 24); await save(); syncMeta(); viewSettings(); } };
@@ -800,6 +921,23 @@ function viewSettings() {
   const bv = $('[data-bvol]'); bv.oninput = () => { p.backingVol = +bv.value / 100; setBackingVolume(p.backingVol); }; bv.onchange = () => save();
   $('[data-testvol]').onclick = async () => { await unlockAudio(); const { pad } = await import('./audio.js'); pad([48, 55, 60, 64], audio().currentTime + 0.05, 2.5); };
   const mb = $('[data-midi]'); if (mb) mb.onclick = async () => { const ok = await initMIDI(); try { localStorage.setItem('nighttrain:midi', '1'); } catch { /* ignore */ } toast(ok ? `🎹 Connected: ${esc(midiName())}` : 'No keyboard found. Check the USB cable and that the keyboard is on.'); viewSettings(); };
+  $('[data-micshare]').onclick = async () => {
+    const text = micReportText(p);
+    try { if (navigator.share) await navigator.share({ title: `Night Train mic report: ${p.name}`, text }); else { await navigator.clipboard.writeText(text); toast('✓ Report copied'); } } catch { /* cancelled */ }
+  };
+  $('[data-upd]').onclick = async () => {
+    const msg = $('[data-updmsg]'); msg.textContent = 'Checking…';
+    try {
+      const reg = await navigator.serviceWorker?.getRegistration();
+      if (!reg) { msg.textContent = 'Updates install automatically when you reopen the app.'; return; }
+      await reg.update();
+      setTimeout(() => {
+        const w = reg.waiting || reg.installing;
+        if (w) { msg.textContent = 'New version found. Updating…'; w.postMessage('skipWaiting'); }
+        else msg.textContent = `You're on the latest version (v${store.APP_VERSION}).`;
+      }, 2500);
+    } catch { msg.textContent = 'Could not check (offline?). Try again later.'; }
+  };
   $('[data-retake]').onclick = () => { S.ob = { step: 4, played: null, reads: null, readScore: null, retake: true }; go('onboard'); };
   $('[data-recal]').onclick = async () => { p.calibration = null; await save(); openMicCheck({ pieceId: 'cdeUpDown', quick: true, onResult: () => viewSettings() }); };
   $('[data-del]').onclick = async () => {
